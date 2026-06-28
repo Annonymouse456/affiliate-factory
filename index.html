@@ -1,0 +1,129 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Affiliate Factory — รายงานประจำวัน</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700;800&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Sarabun','Leelawadee UI',sans-serif;background:#fdf3ec;color:#27201b;padding:26px 16px 70px}
+  .top{max-width:960px;margin:0 auto 20px}
+  .top h1{font-family:'Kanit';font-weight:800;font-size:30px}
+  .day{color:#7a6a5e;margin-top:4px;font-size:15px}
+  .tabs{display:flex;gap:10px;margin-top:16px}
+  .tab{font-family:'Kanit';font-weight:700;font-size:17px;border:2px solid #efe2d7;background:#fff;color:#7a6a5e;
+    border-radius:100px;padding:11px 24px;cursor:pointer}
+  .tab.active{background:#ff5b3a;color:#fff;border-color:#ff5b3a}
+  .view{max-width:960px;margin:0 auto}
+  .hidden{display:none}
+  /* analysis */
+  .arow{background:#fff;border-radius:18px;box-shadow:0 10px 30px rgba(132,76,40,.08);display:flex;gap:18px;align-items:center;padding:18px 20px;margin-bottom:14px}
+  .rank{font-family:'Kanit';font-weight:800;font-size:26px;color:#ff5b3a;flex:0 0 50px}
+  .ainfo{flex:1;min-width:0}
+  .aname{font-family:'Kanit';font-weight:700;font-size:20px}
+  .ametrics{color:#7a6a5e;font-size:14px;margin:3px 0 10px}
+  .ametrics b{color:#ff5b3a}
+  .bar{display:flex;align-items:center;gap:10px;margin:5px 0}
+  .bl{flex:0 0 96px;font-size:13px;font-weight:600;color:#9b8b7e}
+  .track{flex:1;height:12px;background:#f1e6db;border-radius:100px;overflow:hidden}
+  .fill{height:100%;background:linear-gradient(90deg,#ffb04a,#ff5b3a);border-radius:100px}
+  .bv{flex:0 0 90px;text-align:right;font-size:13px;font-weight:700}
+  .reason{margin-top:9px;font-size:14px;color:#41372f;background:#fff6ef;border-radius:10px;padding:8px 12px}
+  .ascore{flex:0 0 92px;text-align:center;background:#fff6ef;border-radius:14px;padding:12px 6px}
+  .sv{font-family:'Kanit';font-weight:800;font-size:34px;color:#ff5b3a;line-height:1}
+  .sl{font-size:12px;color:#9b8b7e}
+  /* posting */
+  .pcard{background:#fff;border-radius:20px;box-shadow:0 12px 34px rgba(132,76,40,.09);display:flex;gap:20px;padding:20px;margin-bottom:18px;border:2px solid transparent}
+  .pcard.done{opacity:.55;border-color:#1eae62}
+  .pthumb{flex:0 0 180px}.pthumb img{width:100%;border-radius:12px;display:block;background:#faf3ee}
+  .pbody{flex:1;min-width:0}
+  .ptitle{font-family:'Kanit';font-weight:700;font-size:21px}
+  .pmeta{color:#ff5b3a;font-weight:700;font-size:14px;margin:3px 0 12px}
+  label{display:block;font-family:'Kanit';font-weight:600;font-size:13px;color:#9b8b7e;margin:10px 0 4px}
+  textarea{width:100%;border:1.5px solid #efe2d7;border-radius:11px;padding:10px 12px;font-family:'Sarabun';font-size:14px;resize:vertical;background:#fffdfb;min-height:46px}
+  button,.btn{font-family:'Kanit';font-weight:600;font-size:14px;border:1.5px solid #efe2d7;border-radius:10px;padding:8px 15px;cursor:pointer;background:#fff;color:#41372f;margin-top:6px;text-decoration:none;display:inline-block}
+  button:hover,.btn:hover{background:#fdeee3}
+  button.primary{background:#ff5b3a;color:#fff;border-color:#ff5b3a}
+  .prow{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin-top:14px}
+  .chk{display:inline-flex;align-items:center;gap:7px;font-family:'Kanit';font-weight:600;cursor:pointer;margin-left:auto}
+  .chk input{width:19px;height:19px;accent-color:#1eae62}
+  @media(max-width:680px){.arow{flex-wrap:wrap}.pcard{flex-direction:column}.pthumb{flex:auto}}
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>🏭 Affiliate Factory — รายงานประจำวัน</h1>
+    <div class="day" id="day"></div>
+    <div class="tabs">
+      <button class="tab active" data-t="analysis">📊 วิเคราะห์ / คัดเลือก</button>
+      <button class="tab" data-t="posting">🚀 พร้อมโพสต์</button>
+    </div>
+  </div>
+  <div id="analysis" class="view"></div>
+  <div id="posting" class="view hidden"></div>
+
+<script>
+const DATA = [{"id":"26056286706","name":"หูฟังไร้สาย XF22 (Bone Conduction)","promoImg":"images/promo-26056286706.png","link":"https://s.shopee.co.th/7fXm5r2bcX","price":379,"comm":14,"commBaht":53.06,"sold":3000,"soldLabel":"3พัน+","discount":46,"caption":"หูฟัง Bone Conduction คล้องหู ไม่อุดรูหู — ได้ยินเสียงรอบข้าง วิ่ง/ปั่นจักรยานปลอดภัยกว่า 🎧\nกันน้ำ IPX5 · บลูทูธ 5.4 · แบตอึด · Touch Control\nราคาลดเหลือ ฿379 (จาก ฿702) คุ้มมาก","hashtags":"#หูฟังไร้สาย #หูฟังกีฬา #BoneConduction #ของมันต้องมี #ShopeeFinds","comment":"สั่งซื้อได้เลย 👉 https://s.shopee.co.th/7fXm5r2bcX","score":80,"f":{"comm":1,"sold":1,"disc":0}},{"id":"28884751403","name":"หูฟัง AI แปลภาษา XF36 (135 ภาษา)","promoImg":"images/promo-28884751403.png","link":"https://s.shopee.co.th/7prCIIZejt","price":329,"comm":13,"commBaht":42.77,"sold":3000,"soldLabel":"3พัน+","discount":69,"caption":"หูฟัง AI แปลภาษาได้ 135 ภาษา! คุยกับชาวต่างชาติได้สบายมาก 🌍🎧\nหนีบหูไม่เจ็บ · บลูทูธ 6.0 · โทร HD · ไฮไฟสเตอริโอ\nลดแรงเหลือ ฿329 (จาก ฿1,061)","hashtags":"#หูฟังแปลภาษา #หูฟังAI #หูฟังไร้สาย #เที่ยวต่างประเทศ #ShopeeFinds","comment":"ตัวช่วยนักเดินทาง 👉 https://s.shopee.co.th/7prCIIZejt","score":85.5,"f":{"comm":0.726,"sold":1,"disc":0.958}},{"id":"44210866396","name":"หูฟัง AI HTC NE55 (แปลภาษา)","promoImg":"images/promo-44210866396.png","link":"https://s.shopee.co.th/4VakKCXNOV","price":258,"comm":6,"commBaht":15.48,"sold":68,"soldLabel":"68","discount":77,"caption":"หูฟัง AI แปลภาษาอัจฉริยะ ราคาเบาๆ เริ่มต้นง่ายๆ 🎧\nบลูทูธ 6.0 · เสียงไฮไฟ · โทรชัด\nลดเหลือ ฿258 (จาก ฿1,122)","hashtags":"#หูฟังแปลภาษา #หูฟังไร้สาย #ของถูกบอกต่อ #ShopeeFinds","comment":"👉 https://s.shopee.co.th/4VakKCXNOV","score":20,"f":{"comm":0,"sold":0,"disc":1}}];
+
+const bar=(label,val,sub)=>`<div class="bar"><span class="bl">${label}</span><div class="track"><div class="fill" style="width:${Math.round(val*100)}%"></div></div><span class="bv">${sub}</span></div>`;
+
+function reasonOf(d){
+  if(d.f.comm>=d.f.sold && d.f.comm>=d.f.disc) return 'คอมต่อชิ้นสูง (฿'+d.commBaht+'/ชิ้น) — ขายชิ้นเดียวคุ้มกว่าของถูกหลายร้อยชิ้น';
+  if(d.f.sold>=d.f.disc) return 'ขายดีมาก ('+d.soldLabel+' ชิ้น) — พิสูจน์แล้วว่าคนซื้อจริง โอกาสปิดการขายสูง';
+  return 'ส่วนลดแรง ('+d.discount+'%) — ดึงดูดคนกดเข้าดู';
+}
+function renderAnalysis(){
+  const s=[...DATA].sort((a,b)=>b.score-a.score);
+  document.getElementById('analysis').innerHTML = s.map((d,i)=>`
+    <div class="arow">
+      <div class="rank">#${i+1}</div>
+      <div class="ainfo">
+        <div class="aname">${d.name}</div>
+        <div class="ametrics">฿${d.price} · ลด ${d.discount}% · คอม ${d.comm}% = <b>฿${d.commBaht}/ชิ้น</b> · ขาย ${d.soldLabel}</div>
+        ${bar('คอม฿/ชิ้น',d.f.comm,'฿'+d.commBaht)}
+        ${bar('ยอดขาย',d.f.sold,d.soldLabel)}
+        ${bar('ส่วนลด',d.f.disc,d.discount+'%')}
+        <div class="reason">💡 ${reasonOf(d)}</div>
+      </div>
+      <div class="ascore"><div class="sv">${d.score}</div><div class="sl">Smart Score</div></div>
+    </div>`).join('');
+}
+
+function copyText(s){const t=document.createElement('textarea');t.value=s;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();t.setSelectionRange(0,999999);try{document.execCommand('copy');}catch(e){}document.body.removeChild(t);}
+function flash(b,x){const o=b.textContent;b.textContent=x;setTimeout(()=>b.textContent=o,1200);}
+function cp(id,b){copyText(document.getElementById(id).value);flash(b,'✓ คัดลอกแล้ว');}
+function cpAll(i,b){copyText(document.getElementById('cap'+i).value+'\n\n'+document.getElementById('tag'+i).value);flash(b,'✓ คัดลอกแล้ว');}
+function mark(c){localStorage.setItem('posted_'+c.dataset.id,c.checked?'1':'');c.closest('[data-card]').classList.toggle('done',c.checked);}
+
+function renderPosting(){
+  document.getElementById('posting').innerHTML = DATA.map((d,i)=>`
+    <div class="pcard" data-card>
+      <div class="pthumb"><img src="${d.promoImg}" alt=""></div>
+      <div class="pbody">
+        <div class="ptitle">${d.name}</div>
+        <div class="pmeta">฿${d.price} (-${d.discount}%) · คอม ฿${d.commBaht}/ชิ้น</div>
+        <label>แคปชั่น</label><textarea readonly id="cap${i}">${d.caption}</textarea><button onclick="cp('cap${i}',this)">คัดลอกแคปชั่น</button>
+        <label>แฮชแท็ก</label><textarea readonly id="tag${i}">${d.hashtags}</textarea><button onclick="cp('tag${i}',this)">คัดลอกแฮชแท็ก</button>
+        <label>คอมเมนต์แรก (ลิงก์)</label><textarea readonly id="cm${i}">${d.comment}</textarea><button onclick="cp('cm${i}',this)">คัดลอกคอมเมนต์</button>
+        <div class="prow">
+          <button class="primary" onclick="cpAll(${i},this)">📋 คัดลอกแคปชั่น+แฮชแท็ก</button>
+          <a class="btn" href="${d.link}" target="_blank">🔗 เปิดสินค้า</a>
+          <label class="chk"><input type="checkbox" data-id="p${d.id}" onchange="mark(this)"> โพสต์แล้ว</label>
+        </div>
+      </div>
+    </div>`).join('');
+  document.querySelectorAll('#posting input[type=checkbox]').forEach(c=>{if(localStorage.getItem('posted_'+c.dataset.id)==='1'){c.checked=true;c.closest('[data-card]').classList.add('done');}});
+}
+
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
+  document.getElementById('analysis').classList.toggle('hidden',t.dataset.t!=='analysis');
+  document.getElementById('posting').classList.toggle('hidden',t.dataset.t!=='posting');
+});
+try{document.getElementById('day').textContent='อัปเดต: '+new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'})+' · '+DATA.length+' สินค้า';}catch(e){}
+renderAnalysis();renderPosting();
+</script>
+</body>
+</html>
+

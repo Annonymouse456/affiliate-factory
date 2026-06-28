@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🚀 แดชบอร์ดโพสต์ — Affiliate Factory</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;700;800&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Sarabun','Leelawadee UI',sans-serif;background:#fdf3ec;color:#27201b;padding:32px 18px 60px}
+  .head{max-width:920px;margin:0 auto 24px}
+  .head h1{font-family:'Kanit';font-weight:800;font-size:34px}
+  .head p{color:#7a6a5e;margin-top:6px;font-size:16px}
+  .prog{margin-top:14px;font-family:'Kanit';font-weight:700;color:#ff5b3a}
+  .card{max-width:920px;margin:0 auto 22px;background:#fff;border-radius:22px;box-shadow:0 14px 40px rgba(132,76,40,.10);
+    display:flex;gap:22px;padding:22px;border:2px solid transparent;transition:.2s}
+  .card.done{opacity:.55;border-color:#1eae62}
+  .thumb{flex:0 0 200px}
+  .thumb img{width:100%;border-radius:14px;display:block;background:#faf3ee}
+  .body{flex:1;min-width:0}
+  .title{font-family:'Kanit';font-weight:700;font-size:24px}
+  .meta{color:#ff5b3a;font-weight:700;margin:4px 0 14px;font-size:15px}
+  label{display:block;font-family:'Kanit';font-weight:600;font-size:14px;color:#9b8b7e;margin:12px 0 5px}
+  textarea{width:100%;border:1.5px solid #efe2d7;border-radius:12px;padding:11px 13px;font-family:'Sarabun';font-size:15px;
+    resize:vertical;background:#fffdfb;color:#27201b}
+  textarea.cap{height:96px} textarea.tag{height:50px} textarea.cm{height:50px}
+  button,.btn{font-family:'Kanit';font-weight:600;font-size:15px;border:none;border-radius:11px;padding:9px 16px;cursor:pointer;
+    background:#fff;border:1.5px solid #efe2d7;color:#41372f;margin-top:7px}
+  button:hover,.btn:hover{background:#fdeee3}
+  button.primary{background:#ff5b3a;color:#fff;border-color:#ff5b3a}
+  button.primary:hover{background:#ed4a2a}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:16px}
+  .chk{display:inline-flex;align-items:center;gap:7px;font-family:'Kanit';font-weight:600;cursor:pointer;margin-left:auto}
+  .chk input{width:20px;height:20px;accent-color:#1eae62;cursor:pointer}
+  a.btn{text-decoration:none;display:inline-block}
+  .note{max-width:920px;margin:28px auto 0;background:#fff6ef;border:1.5px dashed #ffcaa8;border-radius:14px;padding:16px 20px;font-size:15px;color:#7a6a5e}
+  @media(max-width:680px){.card{flex-direction:column}.thumb{flex:auto}.chk{margin-left:0}}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>🚀 แดชบอร์ดโพสต์</h1>
+    <p>กดปุ่ม "คัดลอก" → ไปวางในแอป Shopee Video / Facebook ได้เลย · ติ๊ก "โพสต์แล้ว" เพื่อกันลืม (จำไว้ในเครื่อง)</p>
+    <div class="prog" id="prog">โพสต์แล้ว 0 / 3</div>
+  </div>
+
+  <!-- 1 -->
+  <div class="card" data-card>
+    <div class="thumb"><img src="images/promo-26056286706.png" alt="XF22"></div>
+    <div class="body">
+      <div class="title">🎧 หูฟังไร้สาย XF22 (Bone Conduction)</div>
+      <div class="meta">฿379 (-46%) · ขาย 3พัน+ · คอม 14% = ฿53/ชิ้น 🔥</div>
+      <label>แคปชั่น</label>
+      <textarea class="cap" id="cap1" readonly>หูฟัง Bone Conduction คล้องหู ไม่อุดรูหู — ได้ยินเสียงรอบข้าง วิ่ง/ปั่นจักรยานปลอดภัยกว่า 🎧
+กันน้ำ IPX5 · บลูทูธ 5.4 · แบตอึด · Touch Control
+ราคาลดเหลือ ฿379 (จาก ฿702) คุ้มมาก</textarea>
+      <button onclick="cp('cap1',this)">คัดลอกแคปชั่น</button>
+      <label>แฮชแท็ก</label>
+      <textarea class="tag" id="tag1" readonly>#หูฟังไร้สาย #หูฟังกีฬา #BoneConduction #ของมันต้องมี #ShopeeFinds</textarea>
+      <button onclick="cp('tag1',this)">คัดลอกแฮชแท็ก</button>
+      <label>คอมเมนต์แรก (ลิงก์นายหน้า)</label>
+      <textarea class="cm" id="cm1" readonly>สั่งซื้อได้เลย 👉 https://s.shopee.co.th/7fXm5r2bcX</textarea>
+      <button onclick="cp('cm1',this)">คัดลอกคอมเมนต์</button>
+      <div class="row">
+        <button class="primary" onclick="cpAll(1,this)">📋 คัดลอกแคปชั่น+แฮชแท็ก</button>
+        <a class="btn" href="https://s.shopee.co.th/7fXm5r2bcX" target="_blank">🔗 เปิดสินค้า</a>
+        <label class="chk"><input type="checkbox" data-id="p1" onchange="mark(this)"> โพสต์แล้ว</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <div class="card" data-card>
+    <div class="thumb"><img src="images/promo-28884751403.png" alt="XF36"></div>
+    <div class="body">
+      <div class="title">🌍 หูฟัง AI แปลภาษา XF36 (135 ภาษา)</div>
+      <div class="meta">฿329 (-69%) · ขาย 3พัน+ · คอม 13% = ฿43/ชิ้น</div>
+      <label>แคปชั่น</label>
+      <textarea class="cap" id="cap2" readonly>หูฟัง AI แปลภาษาได้ 135 ภาษา! คุยกับชาวต่างชาติได้สบายมาก 🌍🎧
+หนีบหูไม่เจ็บ · บลูทูธ 6.0 · โทร HD · ไฮไฟสเตอริโอ
+ลดแรงเหลือ ฿329 (จาก ฿1,061)</textarea>
+      <button onclick="cp('cap2',this)">คัดลอกแคปชั่น</button>
+      <label>แฮชแท็ก</label>
+      <textarea class="tag" id="tag2" readonly>#หูฟังแปลภาษา #หูฟังAI #หูฟังไร้สาย #เที่ยวต่างประเทศ #ShopeeFinds</textarea>
+      <button onclick="cp('tag2',this)">คัดลอกแฮชแท็ก</button>
+      <label>คอมเมนต์แรก (ลิงก์นายหน้า)</label>
+      <textarea class="cm" id="cm2" readonly>ตัวช่วยนักเดินทาง 👉 https://s.shopee.co.th/7prCIIZejt</textarea>
+      <button onclick="cp('cm2',this)">คัดลอกคอมเมนต์</button>
+      <div class="row">
+        <button class="primary" onclick="cpAll(2,this)">📋 คัดลอกแคปชั่น+แฮชแท็ก</button>
+        <a class="btn" href="https://s.shopee.co.th/7prCIIZejt" target="_blank">🔗 เปิดสินค้า</a>
+        <label class="chk"><input type="checkbox" data-id="p2" onchange="mark(this)"> โพสต์แล้ว</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <div class="card" data-card>
+    <div class="thumb"><img src="images/promo-44210866396.png" alt="HTC NE55"></div>
+    <div class="body">
+      <div class="title">🎧 หูฟัง AI HTC NE55 (แปลภาษา)</div>
+      <div class="meta">฿258 (-77%) · ขาย 68 · คอม 6%</div>
+      <label>แคปชั่น</label>
+      <textarea class="cap" id="cap3" readonly>หูฟัง AI แปลภาษาอัจฉริยะ ราคาเบาๆ เริ่มต้นง่ายๆ 🎧
+บลูทูธ 6.0 · เสียงไฮไฟ · โทรชัด
+ลดเหลือ ฿258 (จาก ฿1,122)</textarea>
+      <button onclick="cp('cap3',this)">คัดลอกแคปชั่น</button>
+      <label>แฮชแท็ก</label>
+      <textarea class="tag" id="tag3" readonly>#หูฟังแปลภาษา #หูฟังไร้สาย #ของถูกบอกต่อ #ShopeeFinds</textarea>
+      <button onclick="cp('tag3',this)">คัดลอกแฮชแท็ก</button>
+      <label>คอมเมนต์แรก (ลิงก์นายหน้า)</label>
+      <textarea class="cm" id="cm3" readonly>👉 https://s.shopee.co.th/4VakKCXNOV</textarea>
+      <button onclick="cp('cm3',this)">คัดลอกคอมเมนต์</button>
+      <div class="row">
+        <button class="primary" onclick="cpAll(3,this)">📋 คัดลอกแคปชั่น+แฮชแท็ก</button>
+        <a class="btn" href="https://s.shopee.co.th/4VakKCXNOV" target="_blank">🔗 เปิดสินค้า</a>
+        <label class="chk"><input type="checkbox" data-id="p3" onchange="mark(this)"> โพสต์แล้ว</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    📌 <b>วิธีโพสต์:</b> เปิดแอป Shopee → Shopee Video → เลือกคลิป/รูป → กด "คัดลอกแคปชั่น+แฮชแท็ก" แล้ววาง → <b>ปักตะกร้า</b>สินค้า → วางคอมเมนต์แรก (ลิงก์) → เผยแพร่ ·
+    อย่าลืม <b>กรอกข้อมูลธนาคาร/ภาษีใน Shopee</b> เพื่อรับคอม
+  </div>
+
+<script>
+  function flash(btn,txt){const o=btn.textContent;btn.textContent=txt;setTimeout(()=>btn.textContent=o,1200);}
+  function copyText(s){const t=document.createElement('textarea');t.value=s;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();t.setSelectionRange(0,999999);let ok=false;try{ok=document.execCommand('copy');}catch(e){}document.body.removeChild(t);return ok;}
+  function cp(id,btn){copyText(document.getElementById(id).value);flash(btn,'✓ คัดลอกแล้ว');}
+  function cpAll(n,btn){const cap=document.getElementById('cap'+n).value;const tag=document.getElementById('tag'+n).value;copyText(cap+'\n\n'+tag);flash(btn,'✓ คัดลอกแล้ว');}
+  function updateProg(){const all=document.querySelectorAll('input[type=checkbox]').length;const done=document.querySelectorAll('input[type=checkbox]:checked').length;document.getElementById('prog').textContent='โพสต์แล้ว '+done+' / '+all;}
+  function mark(c){localStorage.setItem('posted_'+c.dataset.id,c.checked?'1':'');c.closest('[data-card]').classList.toggle('done',c.checked);updateProg();}
+  document.querySelectorAll('input[type=checkbox]').forEach(c=>{if(localStorage.getItem('posted_'+c.dataset.id)==='1'){c.checked=true;c.closest('[data-card]').classList.add('done');}});
+  updateProg();
+</script>
+</body>
+</html>
