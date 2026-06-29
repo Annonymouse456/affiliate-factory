@@ -164,16 +164,20 @@ function renderPosting(){
           <div class="sblock"><label>Facebook Reels</label><textarea readonly id="scf${i}" class="sta">${scFb(d.scripts.fb)}</textarea><button onclick="cp('scf${i}',this)">คัดลอกสคริปต์ FB</button></div>
         </details>`:''}
         ${d.rawImg?`<div class="diy">
-          <div class="dt">🎨 ทำคลิปเอง (ส่ง AI ตัวอื่น)</div>
-          <label>รูปสินค้าเปล่า (raw, ยังไม่แต่ง) — สำหรับเซฟ/ส่งให้ AI ทำคลิป</label>
+          <div class="dt">🎨 ทำคลิปเอง (รูปเรา → Gemini → คลิปกลับมาขึ้นเว็บ)</div>
+          ${d.diyClip?`<div class="note vel">✅ ตอนนี้เว็บใช้ "คลิป AI ของคุณ" อยู่แล้ว (diy-${d.id}.mp4)</div>`:''}
+          <label>1) รูปสินค้าเปล่า (raw) — เอาไปวางใน Gemini เพื่อสร้างคลิป</label>
           <img class="rawthumb" src="${d.rawImg}" alt="">
-          <a class="btn" href="${d.rawImg}" target="_blank">🖼️ เปิดรูปเปล่า (คลิกขวา → เซฟ)</a>
+          <a class="btn" href="${d.rawImg}" target="_blank">🖼️ เปิดรูปเปล่า</a>
           <button onclick="cpStr('${d.rawImg}',this)">คัดลอก URL รูปเปล่า</button>
-          <label>คลิปที่ทำเอง — เลือกไฟล์มาพรีวิว (ดูในเครื่อง ไม่อัปขึ้นเว็บ)</label>
+          <label>2) ได้คลิปจาก Gemini แล้ว → แปะถาวร: เซฟไฟล์ชื่อนี้ ลงโฟลเดอร์ content/videos/ แล้วรัน deploy.ps1</label>
+          <textarea readonly id="fn${i}">diy-${d.id}.mp4</textarea>
+          <button onclick="cp('fn${i}',this)">คัดลอกชื่อไฟล์</button>
+          <label>หรือพรีวิวคลิปก่อน (ดูในเครื่อง ไม่อัปขึ้นเว็บ)</label>
           <input type="file" accept="video/*" onchange="previewVid(this,${i})">
           <video id="myvid${i}" class="myvid" controls playsinline muted></video>
           <label>เก็บลิงก์คลิป (เช่น Google Drive) — บันทึกในเครื่อง</label>
-          <textarea id="vlink${i}" placeholder="วางลิงก์คลิปที่ทำเสร็จไว้ที่นี่ จะถูกเก็บอัตโนมัติ" oninput="saveVlink(${i},'${d.id}')"></textarea>
+          <textarea id="vlink${i}" placeholder="วางลิงก์คลิปไว้ที่นี่ (เก็บในเครื่อง)" oninput="saveVlink(${i},'${d.id}')"></textarea>
         </div>`:''}
         <div class="prow">
           <button class="primary" onclick="cpAll(${i},this)">📋 คัดลอกแคปชั่น+แฮชแท็ก</button>
