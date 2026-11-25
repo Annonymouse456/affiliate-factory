@@ -30,6 +30,26 @@ The head unit's dashcam is a vendor USB storage device, not a camera, so its pic
 
 Drag the speed number to move the card; tap it to shrink or expand the card.
 
+## Voice co-pilot
+
+"ถาม AI" on the floating card records a spoken question, and the answer is read back.
+
+- `Recorder` captures the question from the head unit's microphone and stops when the speaker goes quiet
+- `Speech` turns Thai speech into text and the answer into speech through the OpenAI audio API
+- `ClaudeClient` asks Claude (`claude-opus-5-5`) through the Messages API with the car's live readings, and
+  runs the tool loop: web search on Anthropic's side, plus `nearby_places`, `look_at_road`,
+  `set_speed_limit`, `set_path_overlay` and `media_control` in the app
+- `ScreenGrab` takes one frame of the screen for `look_at_road`, after the driver allows screen capture
+- `Assistant` ties these together and keeps running totals of requests and tokens
+
+Keys are typed or pasted under "ตั้งค่า AI" and stored in the app's private preferences on the head
+unit. They are never in this repository or in the APK. Speech, the screen frame and the car's position
+are sent to Anthropic and OpenAI only when a question is asked, or when the optional automatic road
+briefing is on.
+
+`ClaudeClient` uses plain HTTPS rather than the Anthropic Java SDK so that the same code can be run
+on the desktop JVM against a scripted server and behave identically on Android 8.1.
+
 ## On-screen reports
 
 "ข้อมูล USB" lists every USB device the app can see and whether each is a standard (UVC) camera.
