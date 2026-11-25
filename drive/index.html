@@ -35,8 +35,13 @@
   .view { position: absolute; inset: 0 0 var(--console-h, 34%) 0; overflow: hidden; container-type: size; border-radius: 0 0 22px 22px; background: #7d8c88; }
   /* stage keeps the clip's 7:4 shape and covers the screen, so the path overlay stays registered to the road */
   .stage { position: absolute; top: 50%; left: 50%; width: max(100cqw, calc(100cqh * 1.75)); aspect-ratio: 7 / 4;
-    transform: translate(-50%, -50%); transition: filter .6s ease; }
-  .stage.night { filter: brightness(.36) saturate(.65) contrast(1.12) hue-rotate(12deg); }
+    transform: translate(-50%, -50%); }
+  .tint { position: absolute; inset: 0; background: rgba(3, 9, 24, .7); opacity: 0; transition: opacity .5s ease; pointer-events: none; }
+  .tint.on { opacity: 1; }
+  /* light mode for slow head units: no live blur, no looping animation */
+  .lite .panel { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(13, 19, 23, 0.86); }
+  .lite #pathShape { animation: none; }
+  .lite .nav svg, .lite .tint { transition: none; }
   .stage video, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   .stage video { object-fit: cover; background: #7d8c88; }
   #pathShape { transition: opacity .4s ease; animation: pathPulse 2.6s ease-in-out infinite; }
@@ -144,7 +149,7 @@
 <main class="display">
   <div class="view">
   <div class="stage" id="stage">
-    <video id="road" src="road.mp4" poster="poster.jpg" muted loop playsinline autoplay preload="auto" aria-label="ภาพถนนบนเขาในหมอกจากมุมมองหน้ารถ"></video>
+    <video id="road" poster="poster.jpg" muted loop playsinline autoplay preload="auto" aria-label="ภาพถนนบนเขาในหมอกจากมุมมองหน้ารถ"></video>
     <video id="cam" muted playsinline autoplay hidden aria-label="ภาพสดจากกล้องหน้ารถ"></video>
     <svg viewBox="0 0 1344 768" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="pg" x1="0" y1="1" x2="0" y2="0">
@@ -153,6 +158,7 @@
       <path id="pathShape" fill="url(#pg)" d="M225 768 L605 768 Q622 640 632 548 L512 548 Q420 650 225 768Z"/>
     </svg>
   </div>
+  <div class="tint" id="tint"></div>
   <div class="shade"></div>
   </div>
 
@@ -247,6 +253,18 @@
   ];
 
   const video = $('road'), stage = $('stage'), pathShape = $('pathShape');
+  // Slow head units get a lighter page: smaller clip, no blur behind panels, no looping animation.
+  const q = new URLSearchParams(location.search).get('lite');
+  const weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (/Android/.test(navigator.userAgent) && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+  let lite = q === '1' || (q !== '0' && !!weak);
+  function useLite(on) {
+    lite = on; document.documentElement.classList.toggle('lite', on);
+    const src = on ? 'road-lite.mp4' : 'road.mp4';
+    if (video.getAttribute('src') !== src) { const t = video.currentTime || 0; video.src = src; video.addEventListener('loadedmetadata', () => { video.currentTime = t; }, { once: true }); saveClip(); }
+  }
+  // ask the service worker to keep the clip in use, so the page still plays without internet
+  function saveClip() { if (navigator.serviceWorker && navigator.serviceWorker.controller) fetch(video.getAttribute('src')).catch(() => {}); }
+  useLite(lite);
   const BEND_END = 5.5;                 // seconds of the loop spent in the right-hand bend
   /* ---------- HUD ---------- */
   function updateNav() {
@@ -259,13 +277,15 @@
     }
   }
   function fmtTime(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
+  const shown = {};
+  function put(id, text) { if (shown[id] !== text) { shown[id] = text; $(id).textContent = text; } }
   function updateHud() {
-    $('speed').textContent = Math.round(st.v * 3.6);
+    put('speed', String(Math.round(st.v * 3.6)));
     const km = Math.max(0, 328 - st.d / 1000);
-    $('range').textContent = Math.round(km) + ' กม.';
+    put('range', Math.round(km) + ' กม.');
     $('battFill').style.width = Math.max(4, km / 420 * 100) + '%';
     const now = new Date();
-    $('clock').textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    put('clock', String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0'));
     $('trackBar').style.width = (st.trackPos * 100) + '%';
     updateNav();
   }
@@ -292,7 +312,7 @@
   $('tDown').onclick = () => { st.temp = Math.max(16, st.temp - 0.5); $('tOut').textContent = st.temp.toFixed(1) + '°'; };
   $('tUp').onclick = () => { st.temp = Math.min(30, st.temp + 0.5); $('tOut').textContent = st.temp.toFixed(1) + '°'; };
   $('pathBtn').onclick = (e) => { st.showPath = !st.showPath; e.currentTarget.setAttribute('aria-pressed', st.showPath); pathShape.style.opacity = st.showPath ? '' : '0'; pathShape.style.animationName = st.showPath ? '' : 'none'; };
-  $('nightBtn').onclick = (e) => { st.night = !st.night; e.currentTarget.setAttribute('aria-pressed', st.night); stage.classList.toggle('night', st.night); };
+  $('nightBtn').onclick = (e) => { st.night = !st.night; e.currentTarget.setAttribute('aria-pressed', st.night); $('tint').classList.toggle('on', st.night); };
   let gpsWatch = null;
   function gpsOff(msg) {
     st.useGps = false; st.gps = null; $('gpsBtn').setAttribute('aria-pressed', false);
@@ -357,7 +377,7 @@
   };
 
   /* ---------- loop ---------- */
-  let last = performance.now(), hudT = 0;
+  let last = performance.now(), hudT = 0, probeN = 0, probeT = 0;
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
     const inBend = (video.currentTime || 0) < BEND_END;
@@ -370,11 +390,14 @@
     const kmh = st.v * 3.6;
     if (kmh < 2 || st.cam) { if (!video.paused) video.pause(); }
     else {
-      video.playbackRate = Math.max(0.25, Math.min(1.6, kmh / 65));
+      const rate = Math.max(0.25, Math.min(1.6, kmh / 65));
+      if (Math.abs(video.playbackRate - rate) > 0.03) video.playbackRate = rate;
       if (video.paused) { const p = video.play(); if (p && p.catch) p.catch(() => {}); }
     }
     if (st.playing) { st.trackPos += dt / tracks[st.track].len; if (st.trackPos >= 1) setTrack(st.track + 1); }
-    hudT += dt; if (hudT > 0.12) { hudT = 0; updateHud(); }
+    hudT += dt; if (hudT > (lite ? 0.25 : 0.12)) { hudT = 0; updateHud(); }
+    // if the first seconds run below ~40 frames a second, drop to the light mode automatically
+    if (!lite && q !== '0' && probeN >= 0) { probeN++; probeT += dt; if (probeT > 4) { if (probeN / probeT < 40) useLite(true); probeN = -1; } }
     requestAnimationFrame(frame);
   }
   const bottomEl = document.querySelector('.bottom');
@@ -384,7 +407,7 @@
   if (reduceMotion) setGear('P'); else st.v = 60 / 3.6;
   updateHud();
   requestAnimationFrame(frame);
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});   // offline use after the first visit
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => setTimeout(saveClip, 1500)).catch(() => {});   // offline use after the first visit
 })();
 </script>
 </body>
