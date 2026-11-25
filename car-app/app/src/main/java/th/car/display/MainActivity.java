@@ -2,9 +2,14 @@ package th.car.display;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.provider.Settings;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -59,7 +64,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 1.0";
+    private static final String VERSION = "แอป 1.1";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -231,6 +236,7 @@ public class MainActivity extends Activity {
         pathKey = key(bar, "เส้นทาง", new Runnable() { @Override public void run() { boolean on = pathView.getVisibility() != View.VISIBLE; pathView.setVisibility(on ? View.VISIBLE : View.GONE); pressed(pathKey, on); } });
         pressed(pathKey, true);
         nightKey = key(bar, "กลางคืน", new Runnable() { @Override public void run() { boolean on = night.getVisibility() != View.VISIBLE; night.setVisibility(on ? View.VISIBLE : View.GONE); pressed(nightKey, on); } });
+        key(bar, "ซ้อนบนแอปกล้อง", new Runnable() { @Override public void run() { floatOverCameraApp(); } });
         key(bar, "ลองกล้อง", new Runnable() { @Override public void run() { tryNextDevice(); } });
         key(bar, "ข้อมูล USB", new Runnable() { @Override public void run() { if (infoBox.getVisibility() == View.VISIBLE) infoBox.setVisibility(View.GONE); else showInfo(report()); } });
         key(bar, "ออก", new Runnable() { @Override public void run() { finish(); } });
@@ -273,7 +279,7 @@ public class MainActivity extends Activity {
     }
 
     private TextView key(LinearLayout bar, String text, final Runnable action) {
-        TextView k = label(text, 3.4f, INK, false);
+        TextView k = label(text, 2.9f, INK, false);
         k.setGravity(Gravity.CENTER);
         k.setSingleLine(true);
         k.setBackground(rounded(0x00000000, unit * 2.6f));
@@ -302,6 +308,52 @@ public class MainActivity extends Activity {
     private void note(String line) {
         if (log.size() > 40) log.remove(0);
         log.add(line);
+    }
+
+    // ---------------------------------------------------------------- floating over the dashcam app
+
+    /**
+     * The dashcam here is not a standard camera, so only its own app can show the picture.
+     * Float the speed card and path band over that app instead of reading the camera.
+     */
+    private void floatOverCameraApp() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            try {
+                startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + getPackageName())));
+                showInfo("เปิดสวิตช์ \"อนุญาตให้แสดงทับแอปอื่น\" ให้แอปจอขับขี่\nแล้วกดย้อนกลับ และกดปุ่ม ซ้อนบนแอปกล้อง อีกครั้ง");
+            } catch (Throwable e) {
+                showInfo("จอนี้ไม่มีหน้าตั้งค่าสิทธิ์แสดงทับแอปอื่น\n" + e + "\nถ่ายรูปข้อความนี้ส่งในแชท");
+            }
+            return;
+        }
+        try {
+            Intent overlay = new Intent(this, OverlayService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(overlay); else startService(overlay);
+        } catch (Throwable e) {
+            showInfo("เริ่มจอซ้อนไม่ได้\n" + e + "\nถ่ายรูปข้อความนี้ส่งในแชท");
+            return;
+        }
+        Intent cameraApp = findCameraApp();
+        if (cameraApp == null) { showInfo("เปิดจอซ้อนแล้ว แต่หาแอปกล้องไม่เจอ\nกดปุ่มโฮม แล้วเปิดแอป Traffic safety เอง การ์ดความเร็วจะลอยอยู่ด้านบน"); return; }
+        try { startActivity(cameraApp); } catch (Throwable e) { showInfo("เปิดแอปกล้องไม่ได้ เปิดแอป Traffic safety เองจากหน้าโฮม\n" + e); }
+    }
+
+    /** The head unit's own dashcam app, found by its name on the launcher. */
+    private Intent findCameraApp() {
+        try {
+            Intent launchers = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+            for (ResolveInfo app : getPackageManager().queryIntentActivities(launchers, 0)) {
+                if (app.activityInfo == null || getPackageName().equals(app.activityInfo.packageName)) continue;
+                String label = String.valueOf(app.loadLabel(getPackageManager())).toLowerCase(Locale.US);
+                String pkg = app.activityInfo.packageName.toLowerCase(Locale.US);
+                if (label.contains("traffic") || label.contains("dvr") || label.contains("\u884c\u8f66") || pkg.contains("dvr") || pkg.contains("carrecord")) {
+                    note("แอปกล้อง: " + app.activityInfo.packageName);
+                    return new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .setComponent(new ComponentName(app.activityInfo.packageName, app.activityInfo.name));
+                }
+            }
+        } catch (Throwable e) { note("หาแอปกล้องไม่ได้: " + e); }
+        return null;
     }
 
     // ---------------------------------------------------------------- speed and clock
@@ -492,6 +544,8 @@ public class MainActivity extends Activity {
             s.append(" • ").append(name(d)).append(" ชนิด ").append(d.getDeviceClass()).append(" [").append(kinds).append("] ")
                     .append(video ? "← เป็นกล้องมาตรฐาน (UVC)" : "ไม่ใช่กล้องมาตรฐาน").append('\n');
         }
+        boolean anyVideo = s.indexOf("(UVC)") >= 0;
+        if (!all.isEmpty() && !anyVideo) s.append("กล้องของจอนี้ไม่ใช่กล้องมาตรฐาน แอปนี้อ่านภาพตรงๆ ไม่ได้ ใช้ปุ่ม ซ้อนบนแอปกล้อง แทน\n");
         s.append("บันทึกล่าสุด:\n");
         for (int i = Math.max(0, log.size() - 12); i < log.size(); i++) s.append(" ").append(log.get(i)).append('\n');
         return s.toString().trim();
