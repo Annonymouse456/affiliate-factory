@@ -145,6 +145,7 @@
   <div class="view">
   <div class="stage" id="stage">
     <video id="road" src="road.mp4" poster="poster.jpg" muted loop playsinline autoplay preload="auto" aria-label="ภาพถนนบนเขาในหมอกจากมุมมองหน้ารถ"></video>
+    <video id="cam" muted playsinline autoplay hidden aria-label="ภาพสดจากกล้องหน้ารถ"></video>
     <svg viewBox="0 0 1344 768" preserveAspectRatio="none" aria-hidden="true">
       <defs><linearGradient id="pg" x1="0" y1="1" x2="0" y2="0">
         <stop offset="0" stop-color="#3a93ff" stop-opacity=".72"/><stop offset=".55" stop-color="#3a93ff" stop-opacity=".5"/><stop offset="1" stop-color="#3a93ff" stop-opacity="0"/>
@@ -172,7 +173,7 @@
         <div class="status" id="status"><b></b><span id="statusText">ขับอัตโนมัติ</span></div>
       </section>
 
-      <section class="nav panel" aria-live="polite" aria-label="นำทาง">
+      <section class="nav panel" id="navPanel" aria-live="polite" aria-label="นำทาง">
         <svg id="navArrow" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 33V8M10 18 20 8l10 10"/></svg>
         <div class="txt">
           <div class="dist" id="navDist">ตรงไป</div>
@@ -200,6 +201,7 @@
         <section class="drive panel" aria-label="การขับขี่">
           <button class="chip" id="pathBtn" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21 11 3M15 21 13 3"/></svg>เส้นทางขับ</button>
           <button class="chip" id="nightBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>กลางคืน</button>
+          <button class="chip" id="camBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3"/></svg><span id="camLabel">กล้องจริง</span></button>
           <button class="chip" id="gpsBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>ความเร็วจริง GPS</button>
           <button class="chip" id="fsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>เต็มจอ</button>
           <div class="stepper" role="group" aria-label="ความเร็วสูงสุด">
@@ -237,7 +239,7 @@
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ---------- state ---------- */
-  const st = { useGps: false, gps: null, d: 0, v: 0, limit: 80, gear: 'D', showPath: true, night: false, temp: 22, playing: true, track: 0, trackPos: 0.12 };
+  const st = { cam: false, useGps: false, gps: null, d: 0, v: 0, limit: 80, gear: 'D', showPath: true, night: false, temp: 22, playing: true, track: 0, trackPos: 0.12 };
   const tracks = [
     { t: 'หมอกยามเช้า', a: 'วงสายลมเหนือ', len: 214 },
     { t: '1,864 โค้ง', a: 'แม่ฮ่องสอนเซสชัน', len: 187 },
@@ -307,6 +309,40 @@
       $('statusText').textContent = 'ความเร็วจริงจาก GPS';
     }, () => gpsOff('เปิด GPS ไม่ได้ ตรวจสิทธิ์ตำแหน่งของเบราว์เซอร์'), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   };
+  /* live camera: replaces the AI clip when the browser can see a camera on this screen */
+  const cam = $('cam'); let camStream = null, camList = [], camIdx = -1;
+  function camStop() { if (camStream) camStream.getTracks().forEach((t) => t.stop()); camStream = null; cam.srcObject = null; }
+  function camOff(msg) {
+    camStop(); st.cam = false; camIdx = -1; cam.hidden = true; $('navPanel').hidden = false;
+    $('camBtn').setAttribute('aria-pressed', false); $('camLabel').textContent = 'กล้องจริง';
+    if (msg) { $('status').classList.add('off'); $('statusText').textContent = msg; }
+  }
+  async function camOpen(deviceId) {
+    camStop();
+    const want = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } };
+    camStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ width: { ideal: 1280 }, height: { ideal: 720 } }, want) });
+    cam.srcObject = camStream; cam.hidden = false; st.cam = true;
+    const p = cam.play(); if (p && p.catch) p.catch(() => {});
+    $('navPanel').hidden = true;             // the turn card describes the clip, not the real road
+    $('camBtn').setAttribute('aria-pressed', true);
+  }
+  $('camBtn').onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return camOff('เบราว์เซอร์นี้เปิดกล้องไม่ได้');
+    try {
+      if (!st.cam) {
+        await camOpen(null);
+        camList = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        const cur = camStream.getVideoTracks()[0].getSettings().deviceId;
+        camIdx = Math.max(0, camList.findIndex((d) => d.deviceId === cur));
+      } else if (camIdx + 1 < camList.length) {   // several cameras: each press moves to the next one
+        camIdx += 1; await camOpen(camList[camIdx].deviceId);
+      } else return camOff();
+      $('camLabel').textContent = camList.length > 1 ? 'กล้อง ' + (camIdx + 1) + '/' + camList.length : 'กล้องจริง';
+    } catch (err) {
+      const why = { NotAllowedError: 'ยังไม่ได้อนุญาตให้ใช้กล้อง', NotFoundError: 'เบราว์เซอร์มองไม่เห็นกล้องบนจอนี้', NotReadableError: 'กล้องถูกแอปอื่นใช้อยู่', OverconstrainedError: 'เบราว์เซอร์มองไม่เห็นกล้องบนจอนี้' }[err && err.name];
+      camOff(why || ('เปิดกล้องไม่ได้ (' + ((err && err.name) || 'ไม่ทราบสาเหตุ') + ')'));
+    }
+  };
   $('fsBtn').onclick = () => {
     const el = document.documentElement;
     if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
@@ -332,7 +368,7 @@
     st.d += st.v * dt;
     // the clip was shot at roughly 65 km/h, so playback speed follows the speedometer
     const kmh = st.v * 3.6;
-    if (kmh < 2) { if (!video.paused) video.pause(); }
+    if (kmh < 2 || st.cam) { if (!video.paused) video.pause(); }
     else {
       video.playbackRate = Math.max(0.25, Math.min(1.6, kmh / 65));
       if (video.paused) { const p = video.play(); if (p && p.catch) p.catch(() => {}); }
