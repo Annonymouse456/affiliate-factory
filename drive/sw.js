@@ -1,5 +1,5 @@
 // Keeps the driving display working when the car screen loses its internet connection.
-const CACHE = 'drive-v2';
+const CACHE = 'drive-v3';
 // the road clip (full or light version) is saved the first time it plays
 const CORE = ['./', 'index.html', 'poster.jpg'];
 
@@ -34,7 +34,8 @@ async function handle(req) {
   const cached = await cache.match(url.href, { ignoreSearch: true });
   if (cached && !isPage) return ranged(req, cached);          // media and fonts: cache first
   try {
-    const fresh = await fetch(url.href, { mode: url.origin === location.origin ? 'same-origin' : 'cors', credentials: 'omit' });
+    // pages skip the browser's own cache so a new version shows on the next reload
+    const fresh = await fetch(url.href, { mode: url.origin === location.origin ? 'same-origin' : 'cors', credentials: 'omit', cache: isPage ? 'no-store' : 'default' });
     if (fresh.status === 200) cache.put(url.href, fresh.clone());
     return ranged(req, fresh);
   } catch (err) {
