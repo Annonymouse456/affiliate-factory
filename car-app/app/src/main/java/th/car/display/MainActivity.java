@@ -64,7 +64,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 1.1";
+    private static final String VERSION = "แอป 1.2";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -80,6 +80,7 @@ public class MainActivity extends Activity {
     private ScrollView infoBox;
     private TextView pathKey, nightKey;
 
+    private boolean askedForMusicAccess;
     private ICameraHelper camera;
     private UsbDevice current;              // device the camera helper is working on
     private int tryIndex = -1;              // position in the USB list for manual attempts
@@ -235,9 +236,8 @@ public class MainActivity extends Activity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         pathKey = key(bar, "เส้นทาง", new Runnable() { @Override public void run() { boolean on = pathView.getVisibility() != View.VISIBLE; pathView.setVisibility(on ? View.VISIBLE : View.GONE); pressed(pathKey, on); } });
         pressed(pathKey, true);
-        nightKey = key(bar, "กลางคืน", new Runnable() { @Override public void run() { boolean on = night.getVisibility() != View.VISIBLE; night.setVisibility(on ? View.VISIBLE : View.GONE); pressed(nightKey, on); } });
         key(bar, "ซ้อนบนแอปกล้อง", new Runnable() { @Override public void run() { floatOverCameraApp(); } });
-        key(bar, "ลองกล้อง", new Runnable() { @Override public void run() { tryNextDevice(); } });
+        key(bar, "เพลงบลูทูธ", new Runnable() { @Override public void run() { music(); } });
         key(bar, "ข้อมูล USB", new Runnable() { @Override public void run() { if (infoBox.getVisibility() == View.VISIBLE) infoBox.setVisibility(View.GONE); else showInfo(report()); } });
         key(bar, "ออก", new Runnable() { @Override public void run() { finish(); } });
         clockText = label("--:--", 4.8f, INK, true);
@@ -333,27 +333,28 @@ public class MainActivity extends Activity {
             showInfo("เริ่มจอซ้อนไม่ได้\n" + e + "\nถ่ายรูปข้อความนี้ส่งในแชท");
             return;
         }
-        Intent cameraApp = findCameraApp();
+        App.prefs(this).edit().putBoolean("autostart", App.prefs(this).getBoolean("autostart", true)).apply();
+        Intent cameraApp = App.findCameraApp(this);
         if (cameraApp == null) { showInfo("เปิดจอซ้อนแล้ว แต่หาแอปกล้องไม่เจอ\nกดปุ่มโฮม แล้วเปิดแอป Traffic safety เอง การ์ดความเร็วจะลอยอยู่ด้านบน"); return; }
         try { startActivity(cameraApp); } catch (Throwable e) { showInfo("เปิดแอปกล้องไม่ได้ เปิดแอป Traffic safety เองจากหน้าโฮม\n" + e); }
     }
 
-    /** The head unit's own dashcam app, found by its name on the launcher. */
-    private Intent findCameraApp() {
-        try {
-            Intent launchers = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-            for (ResolveInfo app : getPackageManager().queryIntentActivities(launchers, 0)) {
-                if (app.activityInfo == null || getPackageName().equals(app.activityInfo.packageName)) continue;
-                String label = String.valueOf(app.loadLabel(getPackageManager())).toLowerCase(Locale.US);
-                String pkg = app.activityInfo.packageName.toLowerCase(Locale.US);
-                if (label.contains("traffic") || label.contains("dvr") || label.contains("\u884c\u8f66") || pkg.contains("dvr") || pkg.contains("carrecord")) {
-                    note("แอปกล้อง: " + app.activityInfo.packageName);
-                    return new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            .setComponent(new ComponentName(app.activityInfo.packageName, app.activityInfo.name));
-                }
+    // ---------------------------------------------------------------- Bluetooth music
+
+    /** Ask for notification access (it unlocks other apps' "now playing"), then show what each source reports. */
+    private void music() {
+        NowPlaying.get().start(this);
+        if (!NowPlaying.hasNotificationAccess(this) && !askedForMusicAccess) {
+            askedForMusicAccess = true;
+            try {
+                startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));
+                showInfo("เปิดสวิตช์ให้แอป จอขับขี่ อ่านการแจ้งเตือนได้\nแล้วกดย้อนกลับ เปิดเพลงจากมือถือผ่านบลูทูธ และกดปุ่ม เพลงบลูทูธ อีกครั้ง");
+                return;
+            } catch (Throwable e) {
+                NowPlaying.get().note("ไม่มีหน้าตั้งค่าสิทธิ์อ่านการแจ้งเตือน: " + e.getClass().getSimpleName());
             }
-        } catch (Throwable e) { note("หาแอปกล้องไม่ได้: " + e); }
-        return null;
+        }
+        showInfo("ผลตรวจเพลง (เปิดเพลงจากมือถือค้างไว้ก่อนกด แล้วถ่ายรูปหน้านี้ส่งในแชท)\n\n" + NowPlaying.get().report(this));
     }
 
     // ---------------------------------------------------------------- speed and clock
@@ -549,28 +550,5 @@ public class MainActivity extends Activity {
         s.append("บันทึกล่าสุด:\n");
         for (int i = Math.max(0, log.size() - 12); i < log.size(); i++) s.append(" ").append(log.get(i)).append('\n');
         return s.toString().trim();
-    }
-
-    // ---------------------------------------------------------------- planned-path overlay
-
-    /** Blue band over the left lane, fading with distance (Thailand drives on the left). */
-    static class PathView extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Path shape = new Path();
-
-        PathView(Context c) { super(c); }
-
-        @Override protected void onSizeChanged(int w, int h, int oldW, int oldH) {
-            shape.reset();
-            shape.moveTo(w * 0.17f, h);
-            shape.lineTo(w * 0.45f, h);
-            shape.quadTo(w * 0.463f, h * 0.83f, w * 0.47f, h * 0.71f);
-            shape.lineTo(w * 0.38f, h * 0.71f);
-            shape.quadTo(w * 0.31f, h * 0.85f, w * 0.17f, h);
-            shape.close();
-            paint.setShader(new LinearGradient(0, h, 0, h * 0.71f, new int[]{0xB83A93FF, 0x803A93FF, 0x003A93FF}, new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
-        }
-
-        @Override protected void onDraw(Canvas canvas) { canvas.drawPath(shape, paint); }
     }
 }
