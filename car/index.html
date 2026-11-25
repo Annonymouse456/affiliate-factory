@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>จอขับขี่ ทางหลวง 1095</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+  /* Layout for a 9-inch 1024x600 head unit read at arm's length: the road fills the screen, one large speed
+     readout top-left, one turn card top-right, one row of big buttons along the bottom. Sizes follow screen height.
+     Written for old Android Chrome as well: no inset, clamp, flex gap or aspect-ratio. */
+  :root {
+    color-scheme: dark;
+    --bg: #0c1114;
+    --ink: #f1f5f6;
+    --ink-dim: #b4c1c4;
+    --glass: rgba(10, 15, 18, 0.72);
+    --bar: rgba(10, 15, 18, 0.86);
+    --line: rgba(255, 255, 255, 0.14);
+    --path: #3a93ff;
+    --sign: #e5483d;
+    --font-display: "Chakra Petch", "IBM Plex Sans Thai", sans-serif;
+    --font-body: "IBM Plex Sans Thai", "Chakra Petch", sans-serif;
+  }
+  html, body { height: 100%; margin: 0; }
+  [hidden] { display: none !important; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.3; overflow: hidden; -webkit-user-select: none; user-select: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:focus { outline: none; }
+
+  .display { position: relative; height: 100%; overflow: hidden; background: var(--bg); }
+  .view { position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; background: #7d8c88; }
+  /* stage keeps the clip's 7:4 shape and covers the screen (sized in script) so the path stays on the road */
+  .stage { position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; -webkit-transform: translate(-50%, -50%); transform: translate(-50%, -50%); }
+  .stage video, .stage svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+  .stage video { object-fit: cover; background: #7d8c88; }
+  #pathShape { transition: opacity .4s ease; }
+  .tint { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(3, 9, 24, .7); opacity: 0; transition: opacity .5s ease; pointer-events: none; }
+  .tint.on { opacity: 1; }
+  .lite .tint, .lite .nav svg { transition: none; }
+  .shade { position: absolute; top: 0; left: 0; width: 100%; height: 34%; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(8,12,15,.55), rgba(8,12,15,0)); }
+
+  .card { position: absolute; top: 14px; background: var(--glass); border: 1px solid var(--line); border-radius: 20px; }
+
+  /* speed */
+  .cluster { left: 14px; padding: 8px 20px 12px; }
+  .speedrow { display: flex; align-items: center; }
+  .speed { font-family: var(--font-display); font-weight: 600; font-size: 120px; font-size: 21vh; line-height: 1; letter-spacing: -0.02em; min-width: 1.25em; }
+  .unit { color: var(--ink-dim); font-size: 16px; font-size: 3vh; margin: 0 18px 0 8px; align-self: flex-end; padding-bottom: 2.6vh; white-space: nowrap; }
+  .limit { width: 78px; height: 78px; width: 13.5vh; height: 13.5vh; border-radius: 50%; border: 6px solid var(--sign); border-width: 1.1vh; box-sizing: border-box;
+    background: #f4f6f6; color: #14181a; font-family: var(--font-display); font-weight: 600; font-size: 32px; font-size: 5.6vh; line-height: 1; text-align: center; }
+  .status { margin-top: 2px; font-size: 16px; font-size: 2.9vh; color: var(--ink-dim); white-space: nowrap; }
+  .status b { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--path); margin-right: 8px; }
+  .status.off b { background: var(--ink-dim); }
+
+  /* turn card */
+  .nav { right: 14px; padding: 12px 20px 12px 14px; display: flex; align-items: center; max-width: 46%; }
+  .nav svg { width: 54px; height: 54px; width: 9.5vh; height: 9.5vh; flex: none; margin-right: 12px; transition: transform .5s ease; }
+  .nav .txt { min-width: 0; }
+  .nav .dist { font-family: var(--font-display); font-weight: 600; font-size: 34px; font-size: 6vh; line-height: 1.1; white-space: nowrap; }
+  .nav .what { font-size: 18px; font-size: 3.2vh; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* bottom bar: six big buttons and the clock */
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: stretch; background: var(--bar); border-top: 1px solid var(--line); padding: 6px 8px; }
+  .key { flex: 1 1 0; min-width: 0; display: block; height: 76px; height: 13vh; min-height: 58px; margin: 0 3px; border-radius: 16px; text-align: center; font-size: 15px; font-size: 2.7vh; line-height: 1.2; white-space: nowrap; overflow: hidden; }
+  .key svg { display: block; width: 28px; height: 28px; width: 5vh; height: 5vh; margin: 0 auto 4px; }
+  .key[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .key:active { background: rgba(255,255,255,.16); }
+  .clock { flex: none; align-self: center; font-family: var(--font-display); font-weight: 500; font-size: 26px; font-size: 4.6vh; padding: 0 14px 0 12px; }
+  .build { position: absolute; right: 10px; bottom: 100%; margin-bottom: 4px; font-size: 10px; color: rgba(255,255,255,.55); white-space: nowrap; pointer-events: none; }
+
+  /* narrow or upright screens (a phone): stack the two cards */
+  @media (max-width: 640px) {
+    .speed { font-size: 84px; } .unit { font-size: 14px; padding-bottom: 12px; margin-right: 12px; }
+    .limit { width: 58px; height: 58px; font-size: 24px; border-width: 5px; }
+    .status { font-size: 14px; }
+    .nav { top: auto; right: auto; left: 14px; margin-top: 176px; top: 0; max-width: 80%; }
+    .nav svg { width: 40px; height: 40px; } .nav .dist { font-size: 24px; } .nav .what { font-size: 15px; }
+    .key { font-size: 11px; height: 64px; margin: 0 1px; } .key svg { width: 24px; height: 24px; }
+    .clock { display: none; }
+    .stage { left: 62%; }
+  }
+</style>
+</head>
+<body>
+<main class="display">
+  <div class="view">
+    <div class="stage" id="stage">
+      <video id="road" poster="poster.jpg" muted loop playsinline autoplay preload="auto" aria-label="ภาพถนนบนเขาในหมอกจากมุมมองหน้ารถ"></video>
+      <video id="cam" muted playsinline autoplay hidden aria-label="ภาพสดจากกล้องหน้ารถ"></video>
+      <svg viewBox="0 0 1344 768" preserveAspectRatio="none" aria-hidden="true">
+        <defs><linearGradient id="pg" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stop-color="#3a93ff" stop-opacity=".72"/><stop offset=".55" stop-color="#3a93ff" stop-opacity=".5"/><stop offset="1" stop-color="#3a93ff" stop-opacity="0"/>
+        </linearGradient></defs>
+        <path id="pathShape" fill="url(#pg)" d="M225 768 L605 768 Q622 640 632 548 L512 548 Q420 650 225 768Z"/>
+      </svg>
+    </div>
+    <div class="tint" id="tint"></div>
+    <div class="shade"></div>
+  </div>
+
+  <section class="card cluster" aria-label="ความเร็ว">
+    <div class="speedrow">
+      <div class="speed" id="speed">0</div>
+      <div class="unit">กม./ชม.</div>
+      <button class="limit" id="limitSign" aria-label="ความเร็วสูงสุด แตะเพื่อเปลี่ยน">80</button>
+    </div>
+    <div class="status" id="status"><b></b><span id="statusText">ขับอัตโนมัติ</span></div>
+  </section>
+
+  <section class="card nav" id="navPanel" aria-live="polite" aria-label="นำทาง">
+    <svg id="navArrow" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 33V8M10 18 20 8l10 10"/></svg>
+    <div class="txt">
+      <div class="dist" id="navDist">ตรงไป</div>
+      <div class="what" id="navWhat">ไปตามถนน</div>
+    </div>
+  </section>
+
+  <nav class="bar" aria-label="ปุ่มควบคุม">
+    <button class="key" id="parkBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="M10 17V7h3a3 3 0 0 1 0 6h-3"/></svg>จอด</button>
+    <button class="key" id="pathBtn" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 21 10.5 3M16 21 13.5 3M12 8v2M12 14v3"/></svg>เส้นทาง</button>
+    <button class="key" id="nightBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>กลางคืน</button>
+    <button class="key" id="camBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM16 10l5-3v10l-5-3"/></svg><span id="camLabel">กล้อง</span></button>
+    <button class="key" id="gpsBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>GPS</button>
+    <button class="key" id="fsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>เต็มจอ</button>
+    <div class="clock" id="clock">--:--</div>
+    <div class="build" id="build">รุ่น 7</div>
+  </nav>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const st = { cam: false, useGps: false, gps: null, v: 0, limit: 80, parked: false, showPath: true, night: false };
+  const LIMITS = [60, 80, 90, 100, 120];
+
+  const video = $('road'), stage = $('stage'), pathShape = $('pathShape');
+  // Slow head units get a lighter page: smaller clip and fewer screen updates.
+  const q = new URLSearchParams(location.search).get('lite');
+  const weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (/Android/.test(navigator.userAgent) && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4);
+  let lite = q === '1' || (q !== '0' && !!weak);
+  // ask the service worker to keep the clip in use, so the page still plays without internet
+  function saveClip() { if (navigator.serviceWorker && navigator.serviceWorker.controller) fetch(video.getAttribute('src')).catch(() => {}); }
+  function useLite(on) {
+    lite = on; document.documentElement.classList.toggle('lite', on);
+    const src = on ? 'road-lite.mp4' : 'road.mp4';
+    if (video.getAttribute('src') !== src) { const t = video.currentTime || 0; video.src = src; video.addEventListener('loadedmetadata', () => { video.currentTime = t; }, { once: true }); saveClip(); }
+  }
+  useLite(lite);
+  const BEND_END = 5.5;                 // seconds of the loop spent in the right-hand bend
+
+  /* ---------- readouts ---------- */
+  const shown = {};
+  function put(id, text) { if (shown[id] !== text) { shown[id] = text; $(id).textContent = text; } }
+  function updateNav() {
+    const t = video.currentTime || 0, arrow = $('navArrow');
+    let deg;
+    if (t < BEND_END) { put('navDist', 'โค้งขวา'); put('navWhat', 'ชะลอความเร็ว'); deg = 50; }
+    else { put('navDist', 'อีก ' + Math.max(10, Math.round(((video.duration || 9) - t) * 17 / 10) * 10) + ' ม.'); put('navWhat', 'โค้งขวา'); deg = 28; }
+    if (shown.deg !== deg) { shown.deg = deg; arrow.style.webkitTransform = arrow.style.transform = 'rotate(' + deg + 'deg)'; }
+  }
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  function updateHud() {
+    put('speed', String(Math.round(st.v * 3.6)));
+    const now = new Date(); put('clock', two(now.getHours()) + ':' + two(now.getMinutes()));
+    updateNav();
+  }
+  function say(text, dim) { $('status').classList.toggle('off', !!dim); $('statusText').textContent = text; }
+  function baseStatus() {
+    if (st.useGps) say(st.gps === null ? 'กำลังรอสัญญาณ GPS' : 'ความเร็วจริงจาก GPS');
+    else if (st.parked) say('จอดอยู่', true);
+    else say('ขับอัตโนมัติ');
+  }
+
+  /* ---------- buttons ---------- */
+  function press(id, on) { $(id).setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  $('parkBtn').onclick = () => { st.parked = !st.parked; press('parkBtn', st.parked); baseStatus(); };
+  $('limitSign').onclick = () => { st.limit = LIMITS[(LIMITS.indexOf(st.limit) + 1) % LIMITS.length]; $('limitSign').textContent = st.limit; };
+  $('pathBtn').onclick = () => { st.showPath = !st.showPath; press('pathBtn', st.showPath); pathShape.style.opacity = st.showPath ? '' : '0'; };
+  $('nightBtn').onclick = () => { st.night = !st.night; press('nightBtn', st.night); $('tint').classList.toggle('on', st.night); };
+
+  let gpsWatch = null;
+  function gpsOff(msg) {
+    st.useGps = false; st.gps = null; press('gpsBtn', false);
+    if (gpsWatch !== null) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch = null; }
+    if (msg) say(msg, true); else baseStatus();
+  }
+  $('gpsBtn').onclick = () => {
+    if (st.useGps) return gpsOff();
+    if (!navigator.geolocation) return gpsOff('จอนี้ไม่รองรับ GPS ในเบราว์เซอร์');
+    st.useGps = true; press('gpsBtn', true); baseStatus();
+    gpsWatch = navigator.geolocation.watchPosition((pos) => {
+      const v = pos.coords.speed; st.gps = (typeof v === 'number' && v >= 0) ? v : 0; baseStatus();
+    }, () => gpsOff('เปิด GPS ไม่ได้ ตรวจสิทธิ์ตำแหน่ง'), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  };
+
+  /* live camera: replaces the clip when the browser can see a camera on this screen */
+  const cam = $('cam'); let camStream = null, camList = [], camIdx = -1;
+  function camStop() { if (camStream) camStream.getTracks().forEach((t) => t.stop()); camStream = null; cam.srcObject = null; }
+  function camOff(msg) {
+    camStop(); st.cam = false; camIdx = -1; cam.hidden = true; $('navPanel').hidden = false;
+    press('camBtn', false); $('camLabel').textContent = 'กล้อง';
+    if (msg) say(msg, true); else baseStatus();
+  }
+  async function camOpen(deviceId) {
+    camStop();
+    const want = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } };
+    camStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ width: { ideal: 1280 }, height: { ideal: 720 } }, want) });
+    cam.srcObject = camStream; cam.hidden = false; st.cam = true;
+    const p = cam.play(); if (p && p.catch) p.catch(() => {});
+    $('navPanel').hidden = true;             // the turn card describes the clip, not the real road
+    press('camBtn', true);
+  }
+  $('camBtn').onclick = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return camOff('เบราว์เซอร์นี้เปิดกล้องไม่ได้');
+    try {
+      if (!st.cam) {
+        await camOpen(null);
+        camList = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        const track = camStream.getVideoTracks()[0], cur = track.getSettings ? track.getSettings().deviceId : '';
+        camIdx = Math.max(0, camList.findIndex((d) => d.deviceId === cur));
+      } else if (camIdx + 1 < camList.length) {   // several cameras: each press moves to the next one
+        camIdx += 1; await camOpen(camList[camIdx].deviceId);
+      } else return camOff();
+      $('camLabel').textContent = camList.length > 1 ? 'กล้อง ' + (camIdx + 1) + '/' + camList.length : 'กล้อง';
+    } catch (err) {
+      const why = { NotAllowedError: 'ยังไม่ได้อนุญาตให้ใช้กล้อง', NotFoundError: 'เบราว์เซอร์มองไม่เห็นกล้อง', NotReadableError: 'กล้องถูกแอปอื่นใช้อยู่', OverconstrainedError: 'เบราว์เซอร์มองไม่เห็นกล้อง' }[err && err.name];
+      camOff(why || ('เปิดกล้องไม่ได้ (' + ((err && err.name) || 'ไม่ทราบสาเหตุ') + ')'));
+    }
+  };
+
+  $('fsBtn').onclick = () => {
+    const el = document.documentElement;
+    const isFull = document.fullscreenElement || document.webkitFullscreenElement;
+    const enter = el.requestFullscreen || el.webkitRequestFullscreen || el.webkitRequestFullScreen;
+    const leave = document.exitFullscreen || document.webkitExitFullscreen || document.webkitCancelFullScreen;
+    try {
+      const r = isFull ? (leave && leave.call(document)) : (enter && enter.call(el));
+      if (r && r.catch) r.catch(() => {});
+      if (!isFull && !enter) say('เบราว์เซอร์นี้ไม่รองรับเต็มจอ', true);
+    } catch (err) { /* older browsers may refuse; the page still works */ }
+    if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});   // keep the screen awake
+  };
+
+  /* ---------- loop ---------- */
+  let last = performance.now(), hudT = 0, probeN = 0, probeT = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const inBend = (video.currentTime || 0) < BEND_END;
+    let target = st.parked ? 0 : Math.min(st.limit, inBend ? 62 : 78) / 3.6, ease = target < st.v ? 1.2 : 0.6;
+    if (st.useGps) { target = st.gps || 0; ease = 3; }   // real speed from the head unit's GPS
+    st.v += (target - st.v) * Math.min(1, dt * ease);
+    if (target === 0 && st.v < 0.4) st.v = 0;
+    // the clip was shot at roughly 65 km/h, so playback speed follows the speedometer
+    const kmh = st.v * 3.6;
+    if (kmh < 2 || st.cam) { if (!video.paused) video.pause(); }
+    else {
+      const rate = Math.max(0.25, Math.min(1.6, kmh / 65));
+      if (Math.abs(video.playbackRate - rate) > 0.03) video.playbackRate = rate;
+      if (video.paused) { const p = video.play(); if (p && p.catch) p.catch(() => {}); }
+    }
+    hudT += dt; if (hudT > (lite ? 0.25 : 0.12)) { hudT = 0; updateHud(); }
+    // if the first seconds run below ~40 frames a second, drop to the light mode automatically
+    if (!lite && q !== '0' && probeN >= 0) { probeN++; probeT += dt; if (probeT > 4) { if (probeN / probeT < 40) useLite(true); probeN = -1; } }
+    requestAnimationFrame(frame);
+  }
+
+  const viewEl = document.querySelector('.view');
+  function fitStage() {     // cover the screen at the clip's 7:4 shape
+    const w = viewEl.clientWidth, h = viewEl.clientHeight, sw = Math.max(w, h * 1.75);
+    stage.style.width = sw + 'px'; stage.style.height = (sw / 1.75) + 'px';
+  }
+  fitStage(); window.addEventListener('resize', fitStage); setTimeout(fitStage, 600);
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach((ev) => document.addEventListener(ev, () => setTimeout(fitStage, 300)));
+
+  // page version and browser version, shown small so a photo of the screen tells which build is running
+  const cv = /Chrome\/(\d+)/.exec(navigator.userAgent);
+  function stamp() { $('build').textContent = 'รุ่น 7' + (cv ? ' · Chrome ' + cv[1] : '') + (navigator.onLine === false ? ' · ออฟไลน์ (หน้าที่เก็บไว้)' : ''); }
+  stamp(); window.addEventListener('online', stamp); window.addEventListener('offline', stamp);
+  st.v = 60 / 3.6;
+  updateHud();
+  requestAnimationFrame(frame);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then(() => setTimeout(saveClip, 1500)).catch(() => {});   // offline use after the first visit
+})();
+</script>
+</body>
+</html>
