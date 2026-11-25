@@ -2,6 +2,13 @@ package th.car.display;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.DialogInterface;
+import android.media.projection.MediaProjectionManager;
+import android.text.InputType;
+import android.widget.EditText;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -64,7 +71,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 1.3";
+    private static final String VERSION = "แอป 2.0";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -114,6 +121,7 @@ public class MainActivity extends Activity {
             List<String> ask = new ArrayList<>();
             if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) ask.add(Manifest.permission.CAMERA);
             if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) ask.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) ask.add(Manifest.permission.RECORD_AUDIO);
             if (!ask.isEmpty()) requestPermissions(ask.toArray(new String[0]), 1);
         }
         ui.post(tick);
@@ -238,7 +246,7 @@ public class MainActivity extends Activity {
         pressed(pathKey, true);
         key(bar, "ซ้อนบนแอปกล้อง", new Runnable() { @Override public void run() { floatOverCameraApp(); } });
         key(bar, "เพลงบลูทูธ", new Runnable() { @Override public void run() { music(); } });
-        key(bar, "ข้อมูล USB", new Runnable() { @Override public void run() { if (infoBox.getVisibility() == View.VISIBLE) infoBox.setVisibility(View.GONE); else showInfo(report()); } });
+        key(bar, "ตั้งค่า AI", new Runnable() { @Override public void run() { aiSettings(); } });
         key(bar, "ออก", new Runnable() { @Override public void run() { finish(); } });
         clockText = label("--:--", 4.8f, INK, true);
         clockText.setPadding(unit * 3, 0, unit * 3, 0);
@@ -337,6 +345,84 @@ public class MainActivity extends Activity {
         Intent cameraApp = App.findCameraApp(this);
         if (cameraApp == null) { showInfo("เปิดจอซ้อนแล้ว แต่หาแอปกล้องไม่เจอ\nกดปุ่มโฮม แล้วเปิดแอป Traffic safety เอง การ์ดความเร็วจะลอยอยู่ด้านบน"); return; }
         try { startActivity(cameraApp); } catch (Throwable e) { showInfo("เปิดแอปกล้องไม่ได้ เปิดแอป Traffic safety เองจากหน้าโฮม\n" + e); }
+    }
+
+    // ---------------------------------------------------------------- AI co-pilot settings
+
+    private String clipboard() {
+        try {
+            ClipData clip = ((ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE)).getPrimaryClip();
+            return clip == null || clip.getItemCount() == 0 ? "" : String.valueOf(clip.getItemAt(0).coerceToText(this)).trim();
+        } catch (Throwable e) { return ""; }
+    }
+
+    private static String masked(String key) { return key.isEmpty() ? "ยังไม่ได้ใส่" : "ใส่แล้ว (ลงท้าย " + key.substring(Math.max(0, key.length() - 4)) + ")"; }
+
+    /** Keys are typed or pasted here and kept in the app's private storage on this head unit only. */
+    private void aiSettings() {
+        final SharedPreferences p = App.prefs(this);
+        String[] items = {
+                "คีย์ Claude: " + masked(Assistant.claudeKey(this)),
+                "คีย์ OpenAI (ฟังและพูด): " + masked(Assistant.openAiKey(this)),
+                "ให้ AI ดูหน้าจอได้ (สำหรับถามเรื่องที่เห็นจากกล้อง): " + (ScreenGrab.ready() ? "อนุญาตแล้ว" : "ยังไม่อนุญาต"),
+                "พิมพ์คำถามทดสอบ",
+                "ดูยอดการใช้งาน",
+                "ลบคีย์ทั้งหมดออกจากจอนี้"
+        };
+        new AlertDialog.Builder(this).setTitle("ตั้งค่า AI").setItems(items, new DialogInterface.OnClickListener() {
+            @Override public void onClick(DialogInterface d, int which) {
+                if (which == 0) enterKey("คีย์ Claude (ขึ้นต้นด้วย sk-ant-)", "claudeKey");
+                else if (which == 1) enterKey("คีย์ OpenAI (ขึ้นต้นด้วย sk-)", "openaiKey");
+                else if (which == 2) {
+                    try { startActivityForResult(((MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE)).createScreenCaptureIntent(), 7); }
+                    catch (Throwable e) { showInfo("จอนี้ไม่รองรับการจับภาพหน้าจอ\n" + e); }
+                }
+                else if (which == 3) typeQuestion();
+                else if (which == 4) showInfo(Assistant.usage(MainActivity.this) + "\n\nภาพจากกล้อง เสียงพูด และตำแหน่งรถ จะถูกส่งไปที่ Anthropic และ OpenAI เฉพาะตอนที่คุณถาม AI หรือเปิดรายงานเส้นทางเอง");
+                else { p.edit().remove("claudeKey").remove("openaiKey").apply(); showInfo("ลบคีย์ออกจากจอนี้แล้ว"); }
+            }
+        }).show();
+    }
+
+    private void enterKey(String title, final String pref) {
+        final EditText box = new EditText(this);
+        box.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        box.setSingleLine(true);
+        box.setHint("พิมพ์ หรือกด วางจากคลิปบอร์ด");
+        new AlertDialog.Builder(this).setTitle(title).setView(box)
+                .setPositiveButton("บันทึก", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { save(pref, box.getText().toString()); } })
+                .setNeutralButton("วางจากคลิปบอร์ด", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { save(pref, clipboard()); } })
+                .setNegativeButton("ยกเลิก", null).show();
+    }
+
+    private void save(String pref, String key) {
+        key = key == null ? "" : key.replaceAll("\\s", "");
+        if (key.length() < 20) { showInfo("ข้อความสั้นเกินกว่าจะเป็นคีย์ ไม่ได้บันทึก"); return; }
+        App.prefs(this).edit().putString(pref, key).apply();
+        showInfo("บันทึกคีย์แล้ว (ลงท้าย " + key.substring(key.length() - 4) + ")\nคีย์เก็บอยู่ในจอนี้เท่านั้น");
+    }
+
+    /** A typed question, answered on screen: checks the Claude key and the internet without needing the microphone. */
+    private void typeQuestion() {
+        final EditText box = new EditText(this);
+        box.setText("ตอนนี้กี่โมง และวันนี้มีข่าวจราจรอะไรในประเทศไทยบ้าง");
+        new AlertDialog.Builder(this).setTitle("พิมพ์คำถามทดสอบ").setView(box)
+                .setPositiveButton("ถาม", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                    showInfo("กำลังถาม Claude… อาจใช้เวลาถึงครึ่งนาทีถ้าต้องค้นเว็บ");
+                    Assistant.get().attach(MainActivity.this, null, new Assistant.Listener() {
+                        @Override public void changed(Assistant.State state, String line) { if (state == Assistant.State.IDLE && line != null) showInfo("คำตอบ:\n" + line + "\n\n" + Assistant.usage(MainActivity.this)); }
+                    });
+                    Assistant.get().askText(box.getText().toString(), false);
+                } })
+                .setNegativeButton("ยกเลิก", null).show();
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != 7) return;
+        if (result == RESULT_OK && data != null) { ScreenGrab.allow(this, result, data); showInfo(ScreenGrab.ready() ? "อนุญาตแล้ว AI ดูภาพหน้าจอได้จนกว่าจะปิดแอป\nต้องอนุญาตใหม่ทุกครั้งที่เปิดจอ" : "เริ่มการจับภาพหน้าจอไม่ได้"); }
+        else showInfo("ไม่ได้อนุญาตให้จับภาพหน้าจอ");
     }
 
     // ---------------------------------------------------------------- Bluetooth music

@@ -62,6 +62,8 @@ public class OverlayService extends Service {
     private LinearLayout card, details, settings, musicRow;
     private WindowManager.LayoutParams cardAt;
     private LinearLayout musicBox;
+    private TextView askKey, answerText, briefKey;
+    private double briefedAtMetres = -1;
     private TextView speedText, limitText, musicText, artistText, roadText, playKey, tripText, moreText, pathKey, toneKey, bootKey, roadKey;
     private LocationManager locations;
     private ToneGenerator tone;
@@ -105,6 +107,7 @@ public class OverlayService extends Service {
             return;
         }
         startGps();
+        Assistant.get().attach(this, car, aiListener);
         NowPlaying.get().addListener(musicChanged);
         NowPlaying.get().start(this);
         musicChanged.run();
@@ -117,6 +120,7 @@ public class OverlayService extends Service {
     public void onDestroy() {
         running = false;
         ui.removeCallbacksAndMessages(null);
+        Assistant.get().detach(aiListener);
         NowPlaying.get().removeListener(musicChanged);
         try { if (locations != null) locations.removeUpdates(gps); } catch (Throwable ignored) { }
         try { if (card != null) windows.removeView(card); } catch (Throwable ignored) { }
@@ -214,6 +218,18 @@ public class OverlayService extends Service {
         musicBox.setVisibility(View.GONE);
         card.addView(musicBox);
 
+        // the co-pilot: one key to ask aloud, and its last words
+        LinearLayout ask = row();
+        askKey = key(ask, "ถาม AI", new Runnable() { @Override public void run() { Assistant.get().tap(); } });
+        card.addView(ask);
+        answerText = text("", 2.8f, INK, false);
+        answerText.setMaxLines(5);
+        answerText.setEllipsize(TextUtils.TruncateAt.END);
+        answerText.setPadding(0, unit, 0, 0);
+        answerText.setVisibility(View.GONE);
+        answerText.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { answerText.setVisibility(View.GONE); } });
+        card.addView(answerText);
+
         // trip figures and the main keys; tap the speed number to hide or show this part
         details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
@@ -255,6 +271,9 @@ public class OverlayService extends Service {
             labels();
         } });
         settings.addView(r);
+        LinearLayout ai = row();
+        briefKey = key(ai, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("briefing", !prefs.getBoolean("briefing", false)).apply(); labels(); } });
+        settings.addView(ai);
         LinearLayout d = row();
         key(d, "เริ่มทริปใหม่", new Runnable() { @Override public void run() { tripMetres = 0; movingMillis = 0; maxKmh = 0; sprintSeconds = -1; } });
         settings.addView(d);
@@ -304,6 +323,7 @@ public class OverlayService extends Service {
         pathKey.setText(path.getVisibility() == View.VISIBLE ? "เส้นทาง: เปิด" : "เส้นทาง: ปิด");
         toneKey.setText(prefs.getBoolean("tone", true) ? "เสียงเตือนเร็วเกิน: เปิด" : "เสียงเตือนเร็วเกิน: ปิด");
         bootKey.setText(prefs.getBoolean("autostart", false) ? "เปิดเองตอนเปิดจอ: เปิด" : "เปิดเองตอนเปิดจอ: ปิด");
+        briefKey.setText(prefs.getBoolean("briefing", false) ? "AI รายงานเส้นทางเอง (ใช้โควตา): เปิด" : "AI รายงานเส้นทางเอง (ใช้โควตา): ปิด");
         roadKey.setText(prefs.getBoolean("roads", true) ? "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): เปิด" : "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): ปิด");
     }
 
@@ -354,6 +374,59 @@ public class OverlayService extends Service {
         at.setMargins(unit, 0, 0, 0);
         row.addView(k, at);
         return k;
+    }
+
+    // ---------------------------------------------------------------- co-pilot
+
+    private final Assistant.Listener aiListener = new Assistant.Listener() {
+        @Override public void changed(Assistant.State state, String line) {
+            if (askKey == null) return;
+            askKey.setText(state == Assistant.State.LISTENING ? "กำลังฟัง… (แตะเมื่อพูดจบ)" : state == Assistant.State.THINKING ? "กำลังคิด…" : state == Assistant.State.SPEAKING ? "กำลังพูด… (แตะเพื่อหยุด)" : "ถาม AI");
+            askKey.setBackground(round(state == Assistant.State.IDLE ? 0x33FFFFFF : 0xFF3A93FF, unit * 2f));
+            if (line != null) { answerText.setText(line); answerText.setVisibility(View.VISIBLE); }
+        }
+    };
+
+    /** What the co-pilot may read and change. Its methods are called from the worker thread. */
+    private final Assistant.Car car = new Assistant.Car() {
+        @Override public String readings() {
+            StringBuilder s = new StringBuilder();
+            Calendar now = Calendar.getInstance();
+            s.append(String.format(Locale.US, "Local time: %tF %tR (Thailand)\n", now, now));
+            Location at = lastPlace;
+            boolean fresh = at != null && speedKmh >= 0 && System.currentTimeMillis() - lastFix < 15000;
+            if (at == null) s.append("Position: no GPS fix yet\n");
+            else s.append(String.format(Locale.US, "Position: %.5f, %.5f%s\n", at.getLatitude(), at.getLongitude(), fresh ? "" : " (last known, may be stale)"));
+            CharSequence road = roadText == null ? "" : roadText.getText();
+            if (road.length() > 0) s.append("Road (from OpenStreetMap): ").append(road).append('\n');
+            if (!heading.isEmpty()) s.append("Heading: ").append(heading).append('\n');
+            s.append("Speed: ").append(fresh ? Math.round(speedKmh) + " km/h" : "unknown").append("; limit sign on the display: ").append(limit).append(" km/h\n");
+            s.append(String.format(Locale.US, "This trip so far: %.1f km in %d minutes of driving, top speed %d km/h\n", tripMetres / 1000.0, movingMillis / 60000, Math.round(maxKmh)));
+            NowPlaying music = NowPlaying.get();
+            if (music.title != null) s.append("Music from the phone: ").append(music.title).append(music.artist == null ? "" : " by " + music.artist).append(Boolean.TRUE.equals(music.playing) ? " (playing)" : " (paused)").append('\n');
+            s.append("Screen capture for look_at_road: ").append(ScreenGrab.ready() ? "allowed" : "not allowed yet");
+            return s.toString();
+        }
+        @Override public Location place() { return lastPlace; }
+        @Override public void setLimit(final int kmh) {
+            ui.post(new Runnable() { @Override public void run() { limit = kmh; limitText.setText(String.valueOf(kmh)); prefs.edit().putInt("limit", kmh).apply(); manualWay = roadWay; } });
+        }
+        @Override public void setPath(final boolean visible) {
+            ui.post(new Runnable() { @Override public void run() { path.setVisibility(visible ? View.VISIBLE : View.GONE); prefs.edit().putBoolean("pathOn", visible).apply(); labels(); } });
+        }
+        @Override public void hideOverlay(final boolean hidden) {
+            ui.post(new Runnable() { @Override public void run() { card.setVisibility(hidden ? View.INVISIBLE : View.VISIBLE); path.setAlpha(hidden ? 0f : card.getAlpha()); } });
+        }
+    };
+
+    /** Optional: once driving, and then every 40 km, the co-pilot checks the road ahead and says what it found. */
+    private void maybeBrief() {
+        if (!prefs.getBoolean("briefing", false) || Assistant.get().state() != Assistant.State.IDLE) return;
+        boolean first = briefedAtMetres < 0 && movingMillis > 90000 && speedKmh > 20;
+        boolean later = briefedAtMetres >= 0 && tripMetres - briefedAtMetres > 40000;
+        if (!first && !later) return;
+        briefedAtMetres = tripMetres;
+        Assistant.get().askText("Check for anything on the road ahead that I should know about in the next 40 km or so in my direction of travel: closures, serious accidents, roadworks, flooding or bad weather. If you find nothing worth interrupting me for, say so in one short sentence.", true);
     }
 
     // ---------------------------------------------------------------- music
@@ -425,6 +498,7 @@ public class OverlayService extends Service {
             }
             if (at.hasBearing() && speedKmh > 8) heading = COMPASS[Math.round(at.getBearing() / 45f) % 8];
             lookUpRoad(at);
+            maybeBrief();
             lastPlace = at;
             lastFixClock = clock;
         }

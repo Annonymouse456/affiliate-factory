@@ -5,10 +5,6 @@ import android.os.Handler;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.net.URLEncoder;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -50,18 +46,62 @@ class RoadInfo {
 
     private static Result ask(String server, double lat, double lon) throws Exception {
         String query = String.format(Locale.US, "[out:json][timeout:8];way(around:30,%.5f,%.5f)[highway];out tags 12;", lat, lon);
-        HttpURLConnection c = (HttpURLConnection) new URL(server + "?data=" + URLEncoder.encode(query, "UTF-8")).openConnection();
-        c.setConnectTimeout(7000);
-        c.setReadTimeout(10000);
-        c.setRequestProperty("User-Agent", "car-display-app/1.3");
-        try {
-            if (c.getResponseCode() != 200) throw new java.io.IOException("HTTP " + c.getResponseCode());
-            InputStream in = c.getInputStream();
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-            for (int n; (n = in.read(buffer)) > 0; ) { bytes.write(buffer, 0, n); if (bytes.size() > 300000) break; }
-            return pick(new JSONObject(bytes.toString("UTF-8")).optJSONArray("elements"));
-        } finally { c.disconnect(); }
+        return pick(overpass(server, query).optJSONArray("elements"));
+    }
+
+    private static JSONObject overpass(String server, String query) throws Exception {
+        Http.Reply r = Http.send("GET", server + "?data=" + URLEncoder.encode(query, "UTF-8"), new String[]{"User-Agent", "car-display-app/2.0"}, null, null, 12000);
+        if (!r.ok()) throw new java.io.IOException("HTTP " + r.code);
+        return new JSONObject(r.text());
+    }
+
+    /** Places of one kind around a position, nearest first, as plain text for the co-pilot. Blocking. */
+    static String nearby(android.location.Location at, String kind, double radiusKm) {
+        String filter;
+        switch (kind == null ? "" : kind) {
+            case "fuel": filter = "[amenity=fuel]"; break;
+            case "food": filter = "[amenity~\"^(restaurant|fast_food|food_court)$\"]"; break;
+            case "cafe": filter = "[amenity=cafe]"; break;
+            case "convenience_store": filter = "[shop=convenience]"; break;
+            case "toilet": filter = "[amenity=toilets]"; break;
+            case "hospital": filter = "[amenity~\"^(hospital|clinic)$\"]"; break;
+            case "parking": filter = "[amenity=parking]"; break;
+            case "atm": filter = "[amenity~\"^(atm|bank)$\"]"; break;
+            case "ev_charging": filter = "[amenity=charging_station]"; break;
+            case "hotel": filter = "[tourism~\"^(hotel|guest_house|motel)$\"]"; break;
+            default: return "Unknown kind of place.";
+        }
+        int metres = (int) Math.round(Math.max(1, Math.min(25, radiusKm)) * 1000);
+        String around = String.format(Locale.US, "(around:%d,%.5f,%.5f)", metres, at.getLatitude(), at.getLongitude());
+        String query = "[out:json][timeout:10];(node" + around + filter + ";way" + around + filter + ";);out center tags 40;";
+        JSONArray found = null;
+        String problem = "no connection";
+        for (String server : SERVERS) {
+            try { found = overpass(server, query).optJSONArray("elements"); break; } catch (Throwable e) { problem = e.getClass().getSimpleName(); }
+        }
+        if (found == null) return "The map service could not be reached (" + problem + ").";
+        java.util.List<String[]> rows = new java.util.ArrayList<>();
+        String[] compass = {"north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"};
+        for (int i = 0; i < found.length(); i++) {
+            JSONObject e = found.optJSONObject(i);
+            if (e == null) continue;
+            JSONObject centre = e.optJSONObject("center");
+            double lat = centre != null ? centre.optDouble("lat") : e.optDouble("lat"), lon = centre != null ? centre.optDouble("lon") : e.optDouble("lon");
+            if (Double.isNaN(lat) || Double.isNaN(lon)) continue;
+            float[] d = new float[2];
+            android.location.Location.distanceBetween(at.getLatitude(), at.getLongitude(), lat, lon, d);
+            JSONObject tags = e.optJSONObject("tags");
+            String name = tags == null ? null : firstText(tags.optString("name", null), tags.optString("name:th", null), tags.optString("brand", null), tags.optString("operator", null));
+            String hours = tags == null ? "" : tags.optString("opening_hours", "");
+            rows.add(new String[]{String.format(Locale.US, "%09.0f", d[0]),
+                    (name == null ? "(unnamed)" : name) + String.format(Locale.US, ", %.1f km to the %s", d[0] / 1000f, compass[Math.round(((d[1] + 360) % 360) / 45f) % 8])
+                            + (hours.isEmpty() ? "" : ", hours " + hours)});
+        }
+        if (rows.isEmpty()) return "OpenStreetMap lists none within " + (metres / 1000) + " km. Its coverage here may be incomplete.";
+        java.util.Collections.sort(rows, new java.util.Comparator<String[]>() { @Override public int compare(String[] x, String[] y) { return x[0].compareTo(y[0]); } });
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < Math.min(6, rows.size()); i++) out.append(rows.get(i)[1]).append('\n');
+        return out.toString().trim();
     }
 
     /** Of the ways near the position, take the most major drivable one: that is nearly always the one being driven. */
