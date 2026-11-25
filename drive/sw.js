@@ -1,6 +1,7 @@
 // Keeps the driving display working when the car screen loses its internet connection.
-const CACHE = 'drive-v1';
-const CORE = ['./', 'index.html', 'road.mp4', 'poster.jpg'];
+const CACHE = 'drive-v2';
+// the road clip (full or light version) is saved the first time it plays
+const CORE = ['./', 'index.html', 'poster.jpg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
