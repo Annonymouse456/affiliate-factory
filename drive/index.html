@@ -348,6 +348,7 @@
   if (reduceMotion) setGear('P'); else st.v = 60 / 3.6;
   updateHud();
   requestAnimationFrame(frame);
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});   // offline use after the first visit
 })();
 </script>
 </body>
