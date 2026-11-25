@@ -145,7 +145,8 @@
     .speed { font-size: 54px; }
     .status { margin-top: 4px; }
     .nav { padding: 8px 14px; }
-    .dock, .tag { display: none; }
+    .dock { display: none; }
+    .tag { font-size: 10.5px; line-height: 1.2; }
   }
 
   @media (max-width: 560px) {
@@ -260,7 +261,7 @@
           <div class="clock" id="clock">--:--</div>
         </div>
       </nav>
-      <div class="tag">เดโมจำลอง · ภาพถนนสร้างด้วย AI · เพลงเป็นตัวอย่าง ไม่มีเสียง</div>
+      <div class="tag">เดโมจำลอง · ภาพถนนสร้างด้วย AI · เพลงเป็นตัวอย่าง ไม่มีเสียง · <span id="build">รุ่น 5</span></div>
     </div>
   </div>
 </main>
@@ -443,6 +444,9 @@
   fitConsole(); window.addEventListener('resize', fitConsole); setTimeout(fitConsole, 600);
   ['fullscreenchange', 'webkitfullscreenchange'].forEach((ev) => document.addEventListener(ev, () => setTimeout(fitConsole, 300)));
   if (window.ResizeObserver) new ResizeObserver(fitConsole).observe(bottomEl);
+  // page version and browser version, shown small so a photo of the screen tells which build is running
+  const cv = /Chrome\/(\d+)/.exec(navigator.userAgent);
+  $('build').textContent = 'รุ่น 5' + (cv ? ' · Chrome ' + cv[1] : '');
   st.v = 60 / 3.6;
   updateHud();
   requestAnimationFrame(frame);
