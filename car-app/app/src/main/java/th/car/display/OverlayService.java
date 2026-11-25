@@ -61,7 +61,8 @@ public class OverlayService extends Service {
     private PathView path;
     private LinearLayout card, details, settings, musicRow;
     private WindowManager.LayoutParams cardAt;
-    private TextView speedText, limitText, musicText, playKey, tripText, moreText, pathKey, toneKey, bootKey;
+    private LinearLayout musicBox;
+    private TextView speedText, limitText, musicText, artistText, roadText, playKey, tripText, moreText, pathKey, toneKey, bootKey, roadKey;
     private LocationManager locations;
     private ToneGenerator tone;
     private int limit, unit;
@@ -74,11 +75,16 @@ public class OverlayService extends Service {
     private long movingMillis, lastFixClock;
     private float maxKmh;
     private String heading = "";
-    private int altitude = Integer.MIN_VALUE;
     private long launchAt = -1;             // moment the car left standstill, for the 0–100 time
     private boolean armed;
     private float sprintSeconds = -1;
     private long lastTone;
+
+    // road name and posted limit from the map
+    private Location lookedUpAt;
+    private long lookedUpClock, roadWay, manualWay = -1;
+    private boolean lookingUp;
+    private String roadNote = "";
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -174,24 +180,39 @@ public class OverlayService extends Service {
             limit = LIMITS[(i + 1) % LIMITS.length];
             limitText.setText(String.valueOf(limit));
             prefs.edit().putInt("limit", limit).apply();
+            manualWay = roadWay;             // keep the hand-set value until the road changes
         } });
         top.addView(limitText, new LinearLayout.LayoutParams(unit * 12, unit * 12));
         card.addView(top);
 
-        // what is playing, with its controls; hidden until a source reports a track
-        musicRow = row();
-        musicRow.setGravity(Gravity.CENTER_VERTICAL);
-        musicText = text("", 3f, INK, false);
+        // road name from the map; hidden until one is known
+        roadText = text("", 3.1f, INK, false);
+        roadText.setSingleLine(true);
+        roadText.setEllipsize(TextUtils.TruncateAt.END);
+        roadText.setVisibility(View.GONE);
+        card.addView(roadText);
+
+        // what is playing: title on its own line (scrolls when long), artist beside the controls
+        musicBox = new LinearLayout(this);
+        musicBox.setOrientation(LinearLayout.VERTICAL);
+        musicText = text("", 3.1f, INK, false);
         musicText.setSingleLine(true);
         musicText.setEllipsize(TextUtils.TruncateAt.MARQUEE);
         musicText.setMarqueeRepeatLimit(-1);
         musicText.setSelected(true);
-        musicRow.addView(musicText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        smallKey(musicRow, "◀◀", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PREVIOUS); } });
-        playKey = smallKey(musicRow, "▶", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); } });
-        smallKey(musicRow, "▶▶", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_NEXT); } });
-        musicRow.setVisibility(View.GONE);
-        card.addView(musicRow);
+        musicBox.addView(musicText);
+        musicRow = row();
+        musicRow.setGravity(Gravity.CENTER_VERTICAL);
+        artistText = text("", 2.7f, INK_DIM, false);
+        artistText.setSingleLine(true);
+        artistText.setEllipsize(TextUtils.TruncateAt.END);
+        musicRow.addView(artistText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        smallKey(musicRow, "\u25C0\u25C0", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PREVIOUS); } });
+        playKey = smallKey(musicRow, "\u25B6", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); } });
+        smallKey(musicRow, "\u25B6\u25B6", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_NEXT); } });
+        musicBox.addView(musicRow);
+        musicBox.setVisibility(View.GONE);
+        card.addView(musicBox);
 
         // trip figures and the main keys; tap the speed number to hide or show this part
         details = new LinearLayout(this);
@@ -225,6 +246,15 @@ public class OverlayService extends Service {
         toneKey = key(c, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("tone", !prefs.getBoolean("tone", true)).apply(); labels(); } });
         bootKey = key(c, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("autostart", !prefs.getBoolean("autostart", false)).apply(); labels(); } });
         settings.addView(c);
+        LinearLayout r = row();
+        roadKey = key(r, "", new Runnable() { @Override public void run() {
+            boolean on = !prefs.getBoolean("roads", true);
+            prefs.edit().putBoolean("roads", on).apply();
+            if (!on) { roadText.setVisibility(View.GONE); roadNote = ""; }
+            lookedUpAt = null;
+            labels();
+        } });
+        settings.addView(r);
         LinearLayout d = row();
         key(d, "เริ่มทริปใหม่", new Runnable() { @Override public void run() { tripMetres = 0; movingMillis = 0; maxKmh = 0; sprintSeconds = -1; } });
         settings.addView(d);
@@ -274,6 +304,7 @@ public class OverlayService extends Service {
         pathKey.setText(path.getVisibility() == View.VISIBLE ? "เส้นทาง: เปิด" : "เส้นทาง: ปิด");
         toneKey.setText(prefs.getBoolean("tone", true) ? "เสียงเตือนเร็วเกิน: เปิด" : "เสียงเตือนเร็วเกิน: ปิด");
         bootKey.setText(prefs.getBoolean("autostart", false) ? "เปิดเองตอนเปิดจอ: เปิด" : "เปิดเองตอนเปิดจอ: ปิด");
+        roadKey.setText(prefs.getBoolean("roads", true) ? "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): เปิด" : "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): ปิด");
     }
 
     private Runnable nudge(final float centre, final float width, final float tilt, final float length) {
@@ -330,13 +361,15 @@ public class OverlayService extends Service {
     private final Runnable musicChanged = new Runnable() {
         @Override public void run() {
             ui.post(new Runnable() { @Override public void run() {
-                if (musicRow == null) return;
+                if (musicBox == null) return;
                 NowPlaying now = NowPlaying.get();
-                if (now.title == null) { musicRow.setVisibility(View.GONE); return; }
-                String line = "♪ " + now.title + (now.artist != null && !now.artist.isEmpty() ? " – " + now.artist : "");
+                if (now.title == null) { musicBox.setVisibility(View.GONE); return; }
+                String line = "\u266A " + now.title;
                 if (!line.contentEquals(musicText.getText())) musicText.setText(line);
-                playKey.setText(Boolean.TRUE.equals(now.playing) ? "II" : "▶");
-                musicRow.setVisibility(View.VISIBLE);
+                String who = now.artist == null ? "" : now.artist;
+                if (!who.contentEquals(artistText.getText())) artistText.setText(who);
+                playKey.setText(Boolean.TRUE.equals(now.playing) ? "II" : "\u25B6");
+                musicBox.setVisibility(View.VISIBLE);
             } });
         }
     };
@@ -355,8 +388,8 @@ public class OverlayService extends Service {
             tripText.setText(String.format(Locale.US, "ทริป %.1f กม. · %d:%02d ชม. · สูงสุด %d", tripMetres / 1000.0, minutes / 60, minutes % 60, Math.round(maxKmh)));
             StringBuilder more = new StringBuilder();
             if (!heading.isEmpty()) more.append("มุ่ง").append(heading);
-            if (altitude != Integer.MIN_VALUE) more.append(more.length() > 0 ? " · " : "").append("สูง ").append(altitude).append(" ม.");
             if (sprintSeconds > 0) more.append(more.length() > 0 ? " · " : "").append(String.format(Locale.US, "0–100 ≈ %.1f วิ", sprintSeconds));
+            if (!roadNote.isEmpty()) more.append(more.length() > 0 ? " · " : "").append(roadNote);
             moreText.setText(more.length() == 0 ? "รอข้อมูล GPS" : more.toString());
 
             int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);     // dim after dark so the card does not glare
@@ -391,7 +424,7 @@ public class OverlayService extends Service {
                 movingMillis += clock - lastFixClock;
             }
             if (at.hasBearing() && speedKmh > 8) heading = COMPASS[Math.round(at.getBearing() / 45f) % 8];
-            if (at.hasAltitude()) altitude = (int) Math.round(at.getAltitude());
+            lookUpRoad(at);
             lastPlace = at;
             lastFixClock = clock;
         }
@@ -399,6 +432,32 @@ public class OverlayService extends Service {
         @Override public void onProviderEnabled(String provider) { }
         @Override public void onProviderDisabled(String provider) { }
     };
+
+    /** Ask the map which road this is: after moving 120 m, or every minute while moving. One request at a time. */
+    private void lookUpRoad(Location at) {
+        if (!prefs.getBoolean("roads", true) || lookingUp) return;
+        long clock = SystemClock.elapsedRealtime();
+        boolean due = lookedUpAt == null || lookedUpAt.distanceTo(at) > 120 || (speedKmh > 5 && clock - lookedUpClock > 60000);
+        if (!due || clock - lookedUpClock < 8000) return;
+        lookingUp = true;
+        lookedUpAt = at;
+        lookedUpClock = clock;
+        RoadInfo.lookup(at.getLatitude(), at.getLongitude(), ui, new RoadInfo.Done() {
+            @Override public void on(RoadInfo.Result r) {
+                lookingUp = false;
+                if (!running || roadText == null || !prefs.getBoolean("roads", true)) return;
+                if (r.error != null) { roadNote = "แผนที่: " + r.error; return; }
+                roadWay = r.wayId;
+                roadText.setText(r.name == null ? "" : r.name);
+                roadText.setVisibility(r.name == null ? View.GONE : View.VISIBLE);
+                if (r.limit > 0 && manualWay != r.wayId) {      // posted limit known and not overridden by hand on this road
+                    limit = r.limit;
+                    limitText.setText(String.valueOf(limit));
+                    roadNote = "ป้ายจากแผนที่";
+                } else roadNote = r.limit > 0 ? "ป้ายตั้งเอง" : "แผนที่ไม่มีป้ายของถนนนี้";
+            }
+        });
+    }
 
     private void startGps() {
         try {
