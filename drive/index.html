@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>จอขับขี่ ทางหลวง 1095</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+  /* Layout: a filmed-looking road clip fills the whole screen; glass instrument panels float over it — cluster and navigation on top, media, drive controls and dock at the bottom. Single dark look by choice (an in-car display). */
+  :root {
+    color-scheme: dark;
+    --bg: #0c1114;
+    --ink: #eaf0f1;
+    --ink-dim: #a3b3b6;
+    --glass: rgba(13, 19, 23, 0.64);
+    --glass-strong: rgba(13, 19, 23, 0.82);
+    --line: rgba(255, 255, 255, 0.11);
+    --path: #3a93ff;
+    --go: #46dba0;
+    --sign: #e5483d;
+    --font-display: "Chakra Petch", "IBM Plex Sans Thai", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans Thai", "Chakra Petch", system-ui, sans-serif;
+    --r-panel: 18px;
+    --r-ctl: 12px;
+  }
+  html, body { height: 100%; margin: 0; }
+  [hidden] { display: none !important; }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--path); outline-offset: 2px; }
+
+  .display { position: relative; height: 100%; overflow: hidden; background: var(--bg); }
+  /* the road view stops just above the bottom controls, which sit on the dark console */
+  .view { position: absolute; inset: 0 0 var(--console-h, 34%) 0; overflow: hidden; container-type: size; border-radius: 0 0 22px 22px; background: #7d8c88; }
+  /* stage keeps the clip's 7:4 shape and covers the screen, so the path overlay stays registered to the road */
+  .stage { position: absolute; top: 50%; left: 50%; width: max(100cqw, calc(100cqh * 1.75)); aspect-ratio: 7 / 4;
+    transform: translate(-50%, -50%); transition: filter .6s ease; }
+  .stage.night { filter: brightness(.36) saturate(.65) contrast(1.12) hue-rotate(12deg); }
+  .stage video, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .stage video { object-fit: cover; background: #7d8c88; }
+  #pathShape { transition: opacity .4s ease; animation: pathPulse 2.6s ease-in-out infinite; }
+  @keyframes pathPulse { 50% { opacity: .78; } }
+  @media (prefers-reduced-motion: reduce) { #pathShape { animation: none; } }
+  @media (max-aspect-ratio: 4/5) { .stage { left: 62%; } }
+  .shade { position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(8,12,15,.5), rgba(8,12,15,0) 30%, rgba(8,12,15,0) 80%, rgba(8,12,15,.35)); }
+
+  .chrome { position: absolute; inset: 0; display: grid; grid-template-rows: auto 1fr auto; pointer-events: none;
+    padding-block: 14px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  .chrome > * > * { pointer-events: auto; }
+
+  .panel { background: var(--glass); border: 1px solid var(--line); border-radius: var(--r-panel);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+
+  /* top row */
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+
+  .cluster { padding: 12px 16px 14px; min-width: 0; }
+  .gears { display: flex; align-items: center; gap: 4px; font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+  .gears span, .gears button { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 8px; color: var(--ink-dim); opacity: .55; }
+  .gears button { opacity: 1; }
+  .gears button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .range { white-space: nowrap; margin-left: 10px; display: flex; align-items: center; gap: 6px; color: var(--ink-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .batt { width: 26px; height: 12px; border: 1.5px solid var(--ink-dim); border-radius: 3px; padding: 1.5px; position: relative; }
+  .batt::after { content: ""; position: absolute; right: -4px; top: 3px; width: 2px; height: 4px; background: var(--ink-dim); border-radius: 1px; }
+  .batt i { display: block; height: 100%; width: 78%; background: var(--go); border-radius: 1px; }
+  .speedrow { display: flex; align-items: flex-end; gap: 14px; margin-top: 4px; }
+  .speed { font-family: var(--font-display); font-weight: 500; font-size: clamp(56px, 9vw, 84px); line-height: .95; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; min-width: 1.9ch; }
+  .unit { color: var(--ink-dim); font-size: 13px; padding-bottom: 8px; }
+  .limit { width: 46px; height: 46px; border-radius: 50%; border: 4px solid var(--sign); background: #f4f6f6; color: #14181a;
+    display: grid; place-items: center; font-family: var(--font-display); font-weight: 600; font-size: 17px; margin-left: auto; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+  .status { margin-top: 8px; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-dim); }
+  .status b { width: 8px; height: 8px; border-radius: 50%; background: var(--path); box-shadow: 0 0 0 4px rgba(58,147,255,.22); }
+  .status.off b { background: var(--ink-dim); box-shadow: none; }
+
+  .nav { padding: 12px 16px; display: flex; align-items: center; gap: 12px; max-width: 100%; min-width: 0; }
+  .nav svg { width: 38px; height: 38px; flex: none; transition: transform .5s cubic-bezier(.2,.8,.2,1); }
+  .nav .txt { min-width: 0; }
+  .nav .dist { font-family: var(--font-display); font-weight: 600; font-size: 22px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .nav .what { font-size: 14px; }
+  .nav .road { font-size: 12px; color: var(--ink-dim); }
+
+  /* bottom */
+  .bottom { display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+
+  .media { flex: 1 1 300px; max-width: 460px; min-width: 0; padding: 10px 14px 10px 10px; display: grid; grid-template-columns: 52px 1fr; column-gap: 12px; row-gap: 8px; }
+  .art { width: 52px; height: 52px; border-radius: 10px; background:
+      radial-gradient(circle at 30% 30%, #ffd9a1 0 16%, transparent 17%),
+      linear-gradient(160deg, #54718a, #24323d 70%); position: relative; overflow: hidden; }
+  .art::after { content: ""; position: absolute; left: -10%; right: -10%; bottom: -30%; height: 70%; background: #18242b; border-radius: 50% 60% 0 0 / 80% 90% 0 0; }
+  .meta { min-width: 0; align-self: center; }
+  .meta .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta .a { color: var(--ink-dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar { grid-column: 1 / -1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--ink); }
+  .transport { grid-column: 1 / -1; display: flex; justify-content: center; gap: 22px; }
+  .ico { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--r-ctl); }
+  .ico:hover { background: rgba(255,255,255,.08); }
+  .ico svg { width: 22px; height: 22px; }
+
+  .drive { flex: 1 1 220px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; align-content: center; }
+  .chip { height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .chip svg { width: 18px; height: 18px; }
+  .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: transparent; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; height: 40px; }
+  .stepper button { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-size: 18px; }
+  .stepper button:hover { background: rgba(255,255,255,.08); }
+  .stepper output { min-width: 5.5ch; text-align: center; font-family: var(--font-display); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stepper small { color: var(--ink-dim); font-family: var(--font-body); font-weight: 400; font-size: 11.5px; margin-left: 3px; }
+
+  .dock { background: var(--glass-strong); padding: 6px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dock .apps { display: flex; gap: 4px; }
+  .dock .clock { font-family: var(--font-display); font-weight: 500; font-size: 15px; color: var(--ink-dim); font-variant-numeric: tabular-nums; padding-right: 6px; }
+  .tag { font-size: 11.5px; color: var(--ink-dim); text-align: right; }
+
+  @media (max-width: 560px) {
+    .cluster { padding: 10px 12px 12px; }
+    .nav { padding: 10px 12px; }
+    .nav svg { width: 30px; height: 30px; }
+    .nav .dist { font-size: 18px; }
+    .limit { width: 40px; height: 40px; font-size: 15px; border-width: 3.5px; }
+    .dock .apps .opt { display: none; }
+    .media { grid-template-columns: 40px 1fr auto; padding: 8px 10px; }
+    .art { width: 40px; height: 40px; }
+    .transport { grid-column: auto; gap: 0; }
+    .bar { order: 5; }
+    .drive { padding: 8px 10px; }
+  }
+  @media (max-height: 520px) {
+    .media { grid-template-columns: 40px 1fr auto; padding: 8px 10px; }
+    .art { width: 40px; height: 40px; }
+    .transport { grid-column: auto; gap: 4px; }
+    .bar { order: 5; }
+    .tag { display: none; }
+  }
+</style>
+
+</head>
+<body>
+<main class="display">
+  <div class="view">
+  <div class="stage" id="stage">
+    <video id="road" src="road.mp4" poster="poster.jpg" muted loop playsinline autoplay preload="auto" aria-label="ภาพถนนบนเขาในหมอกจากมุมมองหน้ารถ"></video>
+    <svg viewBox="0 0 1344 768" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="pg" x1="0" y1="1" x2="0" y2="0">
+        <stop offset="0" stop-color="#3a93ff" stop-opacity=".72"/><stop offset=".55" stop-color="#3a93ff" stop-opacity=".5"/><stop offset="1" stop-color="#3a93ff" stop-opacity="0"/>
+      </linearGradient></defs>
+      <path id="pathShape" fill="url(#pg)" d="M225 768 L605 768 Q622 640 632 548 L512 548 Q420 650 225 768Z"/>
+    </svg>
+  </div>
+  <div class="shade"></div>
+  </div>
+
+  <div class="chrome">
+    <div class="top">
+      <section class="cluster panel" aria-label="มาตรวัด">
+        <div class="gears">
+          <button id="gearP" aria-pressed="false" aria-label="เกียร์จอด">P</button>
+          <span aria-hidden="true">R</span><span aria-hidden="true">N</span>
+          <button id="gearD" aria-pressed="true" aria-label="เกียร์เดินหน้า">D</button>
+          <div class="range"><div class="batt"><i id="battFill"></i></div><span id="range">328 กม.</span></div>
+        </div>
+        <div class="speedrow">
+          <div class="speed" id="speed">0</div>
+          <div class="unit">กม./ชม.</div>
+          <div class="limit" id="limitSign" title="ความเร็วสูงสุดที่ตั้งไว้">80</div>
+        </div>
+        <div class="status" id="status"><b></b><span id="statusText">ขับอัตโนมัติ</span></div>
+      </section>
+
+      <section class="nav panel" aria-live="polite" aria-label="นำทาง">
+        <svg id="navArrow" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 33V8M10 18 20 8l10 10"/></svg>
+        <div class="txt">
+          <div class="dist" id="navDist">ตรงไป</div>
+          <div class="what" id="navWhat">ไปตามถนน</div>
+          <div class="road">ทางหลวง 1095 · มุ่งหน้าปาย</div>
+        </div>
+      </section>
+    </div>
+
+    <div></div>
+
+    <div class="bottom">
+      <div class="row">
+        <section class="media panel" aria-label="เพลง">
+          <div class="art" aria-hidden="true"></div>
+          <div class="meta"><div class="t" id="trackTitle">หมอกยามเช้า</div><div class="a" id="trackArtist">วงสายลมเหนือ · เพลงตัวอย่าง</div></div>
+          <div class="bar"><i id="trackBar"></i></div>
+          <div class="transport">
+            <button class="ico" id="prev" aria-label="เพลงก่อนหน้า"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+            <button class="ico" id="play" aria-label="หยุดเพลงชั่วคราว"><svg viewBox="0 0 24 24" fill="currentColor"><path id="playPath" d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+            <button class="ico" id="next" aria-label="เพลงถัดไป"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+          </div>
+        </section>
+
+        <section class="drive panel" aria-label="การขับขี่">
+          <button class="chip" id="pathBtn" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21 11 3M15 21 13 3"/></svg>เส้นทางขับ</button>
+          <button class="chip" id="nightBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></svg>กลางคืน</button>
+          <button class="chip" id="gpsBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>ความเร็วจริง GPS</button>
+          <button class="chip" id="fsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>เต็มจอ</button>
+          <div class="stepper" role="group" aria-label="ความเร็วสูงสุด">
+            <button id="limDown" aria-label="ลดความเร็วสูงสุด">−</button>
+            <output id="limOut">80<small>สูงสุด</small></output>
+            <button id="limUp" aria-label="เพิ่มความเร็วสูงสุด">+</button>
+          </div>
+        </section>
+      </div>
+
+      <nav class="dock panel" aria-label="แถบควบคุม">
+        <div class="stepper" role="group" aria-label="อุณหภูมิ">
+          <button id="tDown" aria-label="ลดอุณหภูมิ">‹</button>
+          <output id="tOut">22.0°</output>
+          <button id="tUp" aria-label="เพิ่มอุณหภูมิ">›</button>
+        </div>
+        <div class="apps" aria-hidden="true">
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></span>
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg></span>
+          <span class="ico opt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="13" rx="3"/><circle cx="12" cy="12.5" r="3.2"/></svg></span>
+          <span class="ico opt"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg></span>
+        </div>
+        <div>
+          <div class="clock" id="clock">--:--</div>
+        </div>
+      </nav>
+      <div class="tag">เดโมจำลอง · ภาพถนนสร้างด้วย AI · เพลงเป็นตัวอย่าง ไม่มีเสียง</div>
+    </div>
+  </div>
+</main>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- state ---------- */
+  const st = { useGps: false, gps: null, d: 0, v: 0, limit: 80, gear: 'D', showPath: true, night: false, temp: 22, playing: true, track: 0, trackPos: 0.12 };
+  const tracks = [
+    { t: 'หมอกยามเช้า', a: 'วงสายลมเหนือ', len: 214 },
+    { t: '1,864 โค้ง', a: 'แม่ฮ่องสอนเซสชัน', len: 187 },
+    { t: 'ไฟท้ายสีแดง', a: 'นครเหนือ', len: 241 }
+  ];
+
+  const video = $('road'), stage = $('stage'), pathShape = $('pathShape');
+  const BEND_END = 5.5;                 // seconds of the loop spent in the right-hand bend
+  /* ---------- HUD ---------- */
+  function updateNav() {
+    const t = video.currentTime || 0, arrow = $('navArrow');
+    if (t < BEND_END) {
+      $('navDist').textContent = 'โค้งขวา'; $('navWhat').textContent = 'กำลังเข้าโค้ง ชะลอความเร็ว'; arrow.style.transform = 'rotate(50deg)';
+    } else {
+      const left = Math.max(10, Math.round((video.duration - t) * 17 / 10) * 10);
+      $('navDist').textContent = 'อีก ' + left + ' ม.'; $('navWhat').textContent = 'โค้งขวา'; arrow.style.transform = 'rotate(28deg)';
+    }
+  }
+  function fmtTime(sec) { const m = Math.floor(sec / 60), s = Math.floor(sec % 60); return m + ':' + (s < 10 ? '0' : '') + s; }
+  function updateHud() {
+    $('speed').textContent = Math.round(st.v * 3.6);
+    const km = Math.max(0, 328 - st.d / 1000);
+    $('range').textContent = Math.round(km) + ' กม.';
+    $('battFill').style.width = Math.max(4, km / 420 * 100) + '%';
+    const now = new Date();
+    $('clock').textContent = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    $('trackBar').style.width = (st.trackPos * 100) + '%';
+    updateNav();
+  }
+  function setTrack(i) {
+    st.track = (i + tracks.length) % tracks.length; st.trackPos = 0;
+    $('trackTitle').textContent = tracks[st.track].t;
+    $('trackArtist').textContent = tracks[st.track].a + ' · เพลงตัวอย่าง';
+  }
+  function setGear(g) {
+    st.gear = g;
+    $('gearP').setAttribute('aria-pressed', g === 'P'); $('gearD').setAttribute('aria-pressed', g === 'D');
+    $('status').classList.toggle('off', g === 'P');
+    $('statusText').textContent = g === 'P' ? 'จอดอยู่ · แตะ D เพื่อออกรถ' : 'ขับอัตโนมัติ';
+  }
+  function setLimit(v) {
+    st.limit = Math.min(110, Math.max(40, v));
+    $('limitSign').textContent = st.limit;
+    $('limOut').firstChild.nodeValue = st.limit;
+  }
+  $('gearP').onclick = () => setGear('P');
+  $('gearD').onclick = () => setGear('D');
+  $('limDown').onclick = () => setLimit(st.limit - 10);
+  $('limUp').onclick = () => setLimit(st.limit + 10);
+  $('tDown').onclick = () => { st.temp = Math.max(16, st.temp - 0.5); $('tOut').textContent = st.temp.toFixed(1) + '°'; };
+  $('tUp').onclick = () => { st.temp = Math.min(30, st.temp + 0.5); $('tOut').textContent = st.temp.toFixed(1) + '°'; };
+  $('pathBtn').onclick = (e) => { st.showPath = !st.showPath; e.currentTarget.setAttribute('aria-pressed', st.showPath); pathShape.style.opacity = st.showPath ? '' : '0'; pathShape.style.animationName = st.showPath ? '' : 'none'; };
+  $('nightBtn').onclick = (e) => { st.night = !st.night; e.currentTarget.setAttribute('aria-pressed', st.night); stage.classList.toggle('night', st.night); };
+  let gpsWatch = null;
+  function gpsOff(msg) {
+    st.useGps = false; st.gps = null; $('gpsBtn').setAttribute('aria-pressed', false);
+    if (gpsWatch !== null) { navigator.geolocation.clearWatch(gpsWatch); gpsWatch = null; }
+    setGear(st.gear); if (msg) $('statusText').textContent = msg;
+  }
+  $('gpsBtn').onclick = () => {
+    if (st.useGps) return gpsOff();
+    if (!navigator.geolocation) return gpsOff('จอนี้ไม่รองรับ GPS ในเบราว์เซอร์');
+    st.useGps = true; $('gpsBtn').setAttribute('aria-pressed', true);
+    $('status').classList.remove('off'); $('statusText').textContent = 'กำลังรอสัญญาณ GPS';
+    gpsWatch = navigator.geolocation.watchPosition((pos) => {
+      const v = pos.coords.speed; st.gps = (typeof v === 'number' && v >= 0) ? v : 0;
+      $('statusText').textContent = 'ความเร็วจริงจาก GPS';
+    }, () => gpsOff('เปิด GPS ไม่ได้ ตรวจสิทธิ์ตำแหน่งของเบราว์เซอร์'), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+  };
+  $('fsBtn').onclick = () => {
+    const el = document.documentElement;
+    if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});   // keep the screen awake
+  };
+  $('prev').onclick = () => setTrack(st.track - 1);
+  $('next').onclick = () => setTrack(st.track + 1);
+  $('play').onclick = () => {
+    st.playing = !st.playing;
+    $('playPath').setAttribute('d', st.playing ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M7 4v16l13-8z');
+    $('play').setAttribute('aria-label', st.playing ? 'หยุดเพลงชั่วคราว' : 'เล่นเพลง');
+  };
+
+  /* ---------- loop ---------- */
+  let last = performance.now(), hudT = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const inBend = (video.currentTime || 0) < BEND_END;
+    let target = st.gear === 'P' ? 0 : Math.min(st.limit, inBend ? 62 : 78) / 3.6, ease = target < st.v ? 1.2 : 0.6;
+    if (st.useGps) { target = st.gps || 0; ease = 3; }   // real speed from the head unit's GPS
+    st.v += (target - st.v) * Math.min(1, dt * ease);
+    if (target === 0 && st.v < 0.4) st.v = 0;
+    st.d += st.v * dt;
+    // the clip was shot at roughly 65 km/h, so playback speed follows the speedometer
+    const kmh = st.v * 3.6;
+    if (kmh < 2) { if (!video.paused) video.pause(); }
+    else {
+      video.playbackRate = Math.max(0.25, Math.min(1.6, kmh / 65));
+      if (video.paused) { const p = video.play(); if (p && p.catch) p.catch(() => {}); }
+    }
+    if (st.playing) { st.trackPos += dt / tracks[st.track].len; if (st.trackPos >= 1) setTrack(st.track + 1); }
+    hudT += dt; if (hudT > 0.12) { hudT = 0; updateHud(); }
+    requestAnimationFrame(frame);
+  }
+  const bottomEl = document.querySelector('.bottom');
+  function fitConsole() { document.querySelector('.display').style.setProperty('--console-h', (bottomEl.offsetHeight + 22) + 'px'); }
+  fitConsole(); window.addEventListener('resize', fitConsole);
+  if (window.ResizeObserver) new ResizeObserver(fitConsole).observe(bottomEl);
+  if (reduceMotion) setGear('P'); else st.v = 60 / 3.6;
+  updateHud();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
