@@ -71,6 +71,11 @@
   .clock { flex: none; align-self: center; font-family: var(--font-display); font-weight: 500; font-size: 26px; font-size: 4.6vh; padding: 0 14px 0 12px; }
   .build { position: absolute; right: 10px; bottom: 100%; margin-bottom: 4px; font-size: 10px; color: rgba(255,255,255,.55); white-space: nowrap; pointer-events: none; }
 
+  /* camera check result: large enough to read in a photo of the screen; tap to close */
+  .toast { position: absolute; left: 50%; bottom: 20vh; -webkit-transform: translateX(-50%); transform: translateX(-50%); width: 80%; max-width: 760px; box-sizing: border-box;
+    background: rgba(10, 15, 18, 0.94); border: 1px solid var(--line); border-radius: 18px; padding: 14px 20px; font-size: 18px; font-size: 3.2vh; line-height: 1.45; white-space: pre-line; }
+  .toast b { display: block; font-size: 22px; font-size: 4vh; margin-bottom: 4px; }
+
   /* narrow or upright screens (a phone): stack the two cards */
   @media (max-width: 640px) {
     .speed { font-size: 84px; } .unit { font-size: 14px; padding-bottom: 12px; margin-right: 12px; }
@@ -118,6 +123,8 @@
     </div>
   </section>
 
+  <div class="toast" id="toast" role="status" hidden></div>
+
   <nav class="bar" aria-label="ปุ่มควบคุม">
     <button class="key" id="parkBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="4"/><path d="M10 17V7h3a3 3 0 0 1 0 6h-3"/></svg>จอด</button>
     <button class="key" id="pathBtn" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M8 21 10.5 3M16 21 13.5 3M12 8v2M12 14v3"/></svg>เส้นทาง</button>
@@ -126,7 +133,7 @@
     <button class="key" id="gpsBtn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>GPS</button>
     <button class="key" id="fsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>เต็มจอ</button>
     <div class="clock" id="clock">--:--</div>
-    <div class="build" id="build">รุ่น 7</div>
+    <div class="build" id="build">รุ่น 8</div>
   </nav>
 </main>
 
@@ -196,39 +203,75 @@
     }, () => gpsOff('เปิด GPS ไม่ได้ ตรวจสิทธิ์ตำแหน่ง'), { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
   };
 
-  /* live camera: replaces the clip when the browser can see a camera on this screen */
-  const cam = $('cam'); let camStream = null, camList = [], camIdx = -1;
+  /* live camera: replaces the clip when the browser can reach a camera on this screen.
+     Head units differ a lot, so opening tries several ways and reports exactly what happened. */
+  const cam = $('cam'), toast = $('toast'); let camStream = null, camList = [], camIdx = -1;
+  toast.onclick = () => { toast.hidden = true; };
+  function gum(c) {
+    const md = navigator.mediaDevices;
+    if (md && md.getUserMedia) return md.getUserMedia(c);
+    const old = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.getUserMedia;   // very old browsers
+    if (old) return new Promise((res, rej) => old.call(navigator, c, res, rej));
+    return Promise.reject({ name: 'NoCameraApi' });
+  }
+  async function listCams() {
+    try { return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput'); } catch (e) { return []; }
+  }
   function camStop() { if (camStream) camStream.getTracks().forEach((t) => t.stop()); camStream = null; cam.srcObject = null; }
   function camOff(msg) {
     camStop(); st.cam = false; camIdx = -1; cam.hidden = true; $('navPanel').hidden = false;
     press('camBtn', false); $('camLabel').textContent = 'กล้อง';
     if (msg) say(msg, true); else baseStatus();
   }
-  async function camOpen(deviceId) {
-    camStop();
-    const want = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } };
-    camStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: Object.assign({ width: { ideal: 1280 }, height: { ideal: 720 } }, want) });
-    cam.srcObject = camStream; cam.hidden = false; st.cam = true;
-    const p = cam.play(); if (p && p.catch) p.catch(() => {});
+  function camShow(stream) {
+    camStop(); camStream = stream; st.cam = true;
+    if ('srcObject' in cam) cam.srcObject = stream; else cam.src = URL.createObjectURL(stream);
+    cam.hidden = false; const p = cam.play(); if (p && p.catch) p.catch(() => {});
     $('navPanel').hidden = true;             // the turn card describes the clip, not the real road
-    press('camBtn', true);
+    press('camBtn', true); toast.hidden = true; baseStatus();
+  }
+  const DENIED = { NotAllowedError: 1, PermissionDeniedError: 1, SecurityError: 1 };
+  async function camStart() {
+    const log = [], before = await listCams();
+    const tries = [
+      ['กล้องหลัง', { audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } }],
+      ['กล้องใดก็ได้', { audio: false, video: true }],
+      ['ความละเอียดต่ำ', { audio: false, video: { width: { ideal: 640 }, height: { ideal: 480 } } }]
+    ];
+    before.forEach((d, i) => { if (d.deviceId) tries.push(['กล้องตัวที่ ' + (i + 1), { audio: false, video: { deviceId: { exact: d.deviceId } } }]); });
+    for (let i = 0; i < tries.length; i++) {
+      try { return { stream: await gum(tries[i][1]), log: log, seen: before.length }; }
+      catch (err) { const name = (err && err.name) || String(err); log.push(tries[i][0] + ': ' + name); if (DENIED[name]) break; }
+    }
+    return { stream: null, log: log, seen: before.length };
+  }
+  function camReport(r) {
+    const all = r.log.join(' '), cv = /Chrome\/(\d+)/.exec(navigator.userAgent);
+    let tip = 'ถ่ายรูปข้อความนี้ส่งในแชท';
+    if (/NotAllowed|PermissionDenied|Security/.test(all)) tip = 'Chrome ยังไม่ได้รับสิทธิ์กล้อง: ตั้งค่าแอนดรอยด์ > แอป > Chrome > สิทธิ์ > กล้อง แล้วลองใหม่';
+    else if (/NotReadable|TrackStart|SourceUnavailable/.test(all)) tip = 'กล้องถูกแอปอื่นใช้อยู่: ปิดแอป Traffic safety ให้สนิทแล้วลองใหม่';
+    else if (r.seen === 0) tip = 'ระบบของจอไม่เปิดกล้องนี้ให้เบราว์เซอร์ใช้ (กล้องผูกกับแอปของมันเอง)';
+    toast.innerHTML = '';
+    const head = document.createElement('b'); head.textContent = 'เปิดกล้องไม่ได้'; toast.appendChild(head);
+    toast.appendChild(document.createTextNode('กล้องที่เบราว์เซอร์มองเห็น: ' + r.seen + ' ตัว\n' + r.log.join('\n') + '\n' + tip + '\n(รุ่น 8' + (cv ? ' · Chrome ' + cv[1] : '') + ' · แตะเพื่อปิด)'));
+    toast.hidden = false;
   }
   $('camBtn').onclick = async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return camOff('เบราว์เซอร์นี้เปิดกล้องไม่ได้');
-    try {
-      if (!st.cam) {
-        await camOpen(null);
-        camList = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
-        const track = camStream.getVideoTracks()[0], cur = track.getSettings ? track.getSettings().deviceId : '';
-        camIdx = Math.max(0, camList.findIndex((d) => d.deviceId === cur));
-      } else if (camIdx + 1 < camList.length) {   // several cameras: each press moves to the next one
-        camIdx += 1; await camOpen(camList[camIdx].deviceId);
-      } else return camOff();
-      $('camLabel').textContent = camList.length > 1 ? 'กล้อง ' + (camIdx + 1) + '/' + camList.length : 'กล้อง';
-    } catch (err) {
-      const why = { NotAllowedError: 'ยังไม่ได้อนุญาตให้ใช้กล้อง', NotFoundError: 'เบราว์เซอร์มองไม่เห็นกล้อง', NotReadableError: 'กล้องถูกแอปอื่นใช้อยู่', OverconstrainedError: 'เบราว์เซอร์มองไม่เห็นกล้อง' }[err && err.name];
-      camOff(why || ('เปิดกล้องไม่ได้ (' + ((err && err.name) || 'ไม่ทราบสาเหตุ') + ')'));
+    if (st.cam) {                             // several cameras: each press moves to the next one, then back to the clip
+      if (camIdx + 1 < camList.length) {
+        try { camShow(await gum({ audio: false, video: { deviceId: { exact: camList[camIdx + 1].deviceId } } })); camIdx += 1; $('camLabel').textContent = 'กล้อง ' + (camIdx + 1) + '/' + camList.length; return; }
+        catch (err) { /* fall through to switching the camera off */ }
+      }
+      return camOff();
     }
+    say('กำลังเปิดกล้อง…');
+    const r = await camStart();
+    if (!r.stream) { camOff('เปิดกล้องไม่ได้'); return camReport(r); }
+    camShow(r.stream);
+    camList = await listCams();
+    const track = r.stream.getVideoTracks()[0], cur = track && track.getSettings ? track.getSettings().deviceId : '';
+    camIdx = Math.max(0, camList.findIndex((d) => d.deviceId === cur));
+    $('camLabel').textContent = camList.length > 1 ? 'กล้อง ' + (camIdx + 1) + '/' + camList.length : 'กล้อง';
   };
 
   $('fsBtn').onclick = () => {
@@ -277,7 +320,7 @@
 
   // page version and browser version, shown small so a photo of the screen tells which build is running
   const cv = /Chrome\/(\d+)/.exec(navigator.userAgent);
-  function stamp() { $('build').textContent = 'รุ่น 7' + (cv ? ' · Chrome ' + cv[1] : '') + (navigator.onLine === false ? ' · ออฟไลน์ (หน้าที่เก็บไว้)' : ''); }
+  function stamp() { $('build').textContent = 'รุ่น 8' + (cv ? ' · Chrome ' + cv[1] : '') + (navigator.onLine === false ? ' · ออฟไลน์ (หน้าที่เก็บไว้)' : ''); }
   stamp(); window.addEventListener('online', stamp); window.addEventListener('offline', stamp);
   st.v = 60 / 3.6;
   updateHud();
