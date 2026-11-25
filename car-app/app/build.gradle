@@ -1,0 +1,39 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'th.car.display'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'th.car.display'
+        minSdk 21
+        targetSdk 33
+        versionCode 1
+        versionName '1.0'
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }   // head units are ARM; leaves out emulator-only libraries
+    }
+    signingConfigs {
+        // Set CAR_KEYSTORE / CAR_KEYSTORE_PASS to sign with a kept key; otherwise the debug key is used.
+        kept {
+            if (System.getenv('CAR_KEYSTORE')) {
+                storeFile file(System.getenv('CAR_KEYSTORE'))
+                storePassword System.getenv('CAR_KEYSTORE_PASS')
+                keyAlias 'car'
+                keyPassword System.getenv('CAR_KEYSTORE_PASS')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig System.getenv('CAR_KEYSTORE') ? signingConfigs.kept : signingConfigs.debug
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    lint { abortOnError false; checkReleaseBuilds false }
+}
+
+dependencies {
+    // the camera library's own dependencies pull in mixed Kotlin runtime versions; align them
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+    implementation 'com.herohan:UVCAndroid:1.0.11'   // reads USB (UVC) cameras directly over the USB port
+}
