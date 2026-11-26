@@ -33,6 +33,24 @@ public class App extends Application {
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("car", Context.MODE_PRIVATE); }
 
+    /** Megabytes free where the app keeps its settings, or -1 when it cannot be read. */
+    static long freeMegabytes(Context c) {
+        try { return new android.os.StatFs(c.getFilesDir().getPath()).getAvailableBytes() / (1024 * 1024); } catch (Throwable e) { return -1; }
+    }
+
+    /**
+     * When the app was first installed and last updated. If the two match after an update, the head
+     * unit replaced the app instead of updating it, which also erases its saved settings and keys.
+     */
+    static String installHistory(Context c) {
+        try {
+            android.content.pm.PackageInfo p = c.getPackageManager().getPackageInfo(c.getPackageName(), 0);
+            java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("d MMM HH:mm", Locale.US);
+            return "ติดตั้งครั้งแรก " + f.format(new java.util.Date(p.firstInstallTime)) + " · อัปเดตล่าสุด " + f.format(new java.util.Date(p.lastUpdateTime))
+                    + (Math.abs(p.firstInstallTime - p.lastUpdateTime) < 5000 ? " (จอนี้ลงแอปใหม่แทนการอัปเดต ข้อมูลเดิมจึงหาย)" : " (อัปเดตทับ ข้อมูลเดิมควรอยู่)");
+        } catch (Throwable e) { return "อ่านประวัติการติดตั้งไม่ได้"; }
+    }
+
     /** The head unit's own dashcam app, found by its name on the launcher; null when there is none. */
     static Intent findCameraApp(Context c) {
         try {
