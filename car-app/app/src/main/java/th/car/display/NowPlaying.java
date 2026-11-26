@@ -42,6 +42,27 @@ public class NowPlaying {
 
     String title, artist, source;
     Boolean playing;                        // null when unknown
+    android.graphics.Bitmap cover;          // from Bluetooth when it sends one, otherwise looked up online; null when there is none
+    private String coverFor = "";
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** A new track: use the picture Bluetooth sent, or look one up by title and artist. */
+    private void findCover(final String forTitle, final String forArtist, android.graphics.Bitmap sent) {
+        final String key = forTitle + "|" + forArtist;
+        if (sent != null) { cover = sent; coverFor = key; return; }
+        if (key.equals(coverFor)) return;
+        coverFor = key;
+        cover = null;
+        if (app != null && !App.prefs(app).getBoolean("covers", true)) return;
+        CoverArt.find(forTitle, forArtist, ui, new CoverArt.Done() {
+            @Override public void on(android.graphics.Bitmap found) {
+                if (!key.equals(coverFor)) return;          // the track changed while we were looking
+                cover = found;
+                note(found == null ? "ปกเพลง: หาไม่เจอ" : "ปกเพลง: ได้จากอินเทอร์เน็ต");
+                changed();
+            }
+        });
+    }
 
     private final List<Runnable> listeners = new ArrayList<>();
     private final List<String> log = new ArrayList<>();
@@ -63,7 +84,9 @@ public class NowPlaying {
     private void changed() { for (Runnable r : new ArrayList<>(listeners)) try { r.run(); } catch (Throwable ignored) { } }
 
     /** A source reports a track. Session sources outrank guesses from broadcasts and notifications. */
-    void offer(String from, String newTitle, String newArtist, Boolean nowPlaying, boolean trusted) {
+    void offer(String from, String newTitle, String newArtist, Boolean nowPlaying, boolean trusted) { offer(from, newTitle, newArtist, nowPlaying, trusted, null); }
+
+    void offer(String from, String newTitle, String newArtist, Boolean nowPlaying, boolean trusted, android.graphics.Bitmap sentCover) {
         if (newTitle == null || newTitle.trim().isEmpty()) {
             if (nowPlaying != null && from.equals(source)) { playing = nowPlaying; changed(); }
             return;
@@ -74,6 +97,7 @@ public class NowPlaying {
         artist = newArtist == null ? null : newArtist.trim();
         if (nowPlaying != null) playing = nowPlaying;
         source = from;
+        findCover(title, artist == null ? "" : artist, sentCover);
         if (differs) note("เพลงจาก " + from + ": " + title + (artist != null ? " – " + artist : ""));
         changed();
     }
@@ -157,7 +181,14 @@ public class NowPlaying {
             a = first(m.getString(MediaMetadata.METADATA_KEY_ARTIST), m.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST), m.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE));
         }
         if (t == null && isPlaying != null) { if (from.equals(source)) { playing = isPlaying; changed(); } return; }
-        offer(from, t, a, isPlaying, true);
+        android.graphics.Bitmap sent = null;
+        if (m != null) {
+            sent = m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if (sent == null) sent = m.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if (sent == null) sent = m.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON);
+            if (sent != null) note("ปกเพลง: ได้จากบลูทูธ");
+        }
+        offer(from, t, a, isPlaying, true, sent);
     }
 
     private static String first(String... values) {
