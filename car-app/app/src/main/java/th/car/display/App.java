@@ -31,7 +31,24 @@ public class App extends Application {
         });
     }
 
-    static SharedPreferences prefs(Context c) { return c.getSharedPreferences("car", Context.MODE_PRIVATE); }
+    private static SharedPreferences store;
+
+    /**
+     * Where settings are kept. Normally Android's own preferences; on a head unit whose private app
+     * folder cannot be written, a JSON file in the app's folder on shared storage instead, so
+     * settings and keys still survive closing the app.
+     */
+    static synchronized SharedPreferences prefs(Context c) {
+        if (store == null) {
+            Context app = c.getApplicationContext() == null ? c : c.getApplicationContext();
+            java.io.File spare = app.getExternalFilesDir(null);
+            if (whyCannotSave(app) != null && spare != null) store = new FilePrefs(new java.io.File(spare, "settings.json"));
+            else store = app.getSharedPreferences("car", Context.MODE_PRIVATE);
+        }
+        return store;
+    }
+
+    static boolean usingSpareStore() { return store instanceof FilePrefs; }
 
     // ---- second place to keep the keys, for a head unit whose app folder cannot be written ----
     // The app's folder on shared storage. Less private than the normal place: on Android 8 other apps
