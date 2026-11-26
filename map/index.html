@@ -55,7 +55,7 @@
   #turnIcon svg { width: 100%; height: 100%; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
   #turnDist { font-size: 30px; font-weight: 700; line-height: 1.1; }
   #turnText { font-size: 18px; line-height: 1.3; opacity: .95; }
-  #recenter { position: absolute; z-index: 9; left: 12px; bottom: 150px; display: none; font: inherit; font-weight: 600; padding: 11px 16px;
+  #recenter { position: absolute; z-index: 9; left: 12px; bottom: var(--sheet, 150px); display: none; font: inherit; font-weight: 600; padding: 11px 16px;
     border: 0; border-radius: 24px; background: #111; color: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.4); cursor: pointer; }
   body.navactive #turn { display: flex; }
   body.navactive #nav { padding: 12px 16px; }
@@ -69,17 +69,32 @@
   #nav .row { display: flex; gap: 8px; margin-top: 10px; }
   #nav button { font: inherit; padding: 10px 14px; border: 0; border-radius: 8px; background: #e6e6e6; color: #111; cursor: pointer; }
   #nav #navGo { flex: 1; background: #1668e3; color: #fff; font-weight: 600; }
-  body.navopen .maplibregl-ctrl-bottom-right, body.navopen .maplibregl-ctrl-bottom-left { bottom: 150px; }
-  body.navactive .maplibregl-ctrl-bottom-right { bottom: 110px; }
+  body.navopen .maplibregl-ctrl-bottom-right, body.navopen .maplibregl-ctrl-bottom-left { bottom: var(--sheet, 150px); }
   body.navactive #search, body.navactive .panel { display: none; }
   .me { width: 18px; height: 18px; border-radius: 50%; background: #1668e3; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(22,104,227,.35), 0 1px 4px rgba(0,0,0,.4); }
   #results { max-height: 60vh; overflow-y: auto; }
   #results li.chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px; cursor: default; }
   #results li.chips button { flex: none; font: inherit; padding: 6px 10px; border: 1px solid #ccc; border-radius: 16px; background: #f5f5f5; color: #111; cursor: pointer; }
   #saveRow, #optRow { display: none; }
-  #optRow button { flex: 1; background: #f1f3f6; border: 2px solid transparent; text-align: left; line-height: 1.35; }
-  #optRow button.on { border-color: #1668e3; background: #e8f0fe; font-weight: 600; }
-  #optRow small { display: block; font-weight: 400; color: #444; }
+  #nav #optRow button { flex: 1; position: relative; background: #f4f6f9; border: 2px solid transparent; border-radius: 12px; text-align: left; padding: 10px 12px; line-height: 1.3; }
+  #nav #optRow button.on { border-color: #1668e3; background: #eaf2ff; }
+  #optRow b { display: block; font-size: 13px; font-weight: 600; color: #555; }
+  #optRow .t { display: block; font-size: 19px; font-weight: 700; color: #111; }
+  #optRow small { display: block; font-size: 13px; color: #666; }
+  #optRow .badge { position: absolute; top: 8px; right: 8px; font-style: normal; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #0a7d33; color: #fff; display: none; }
+  #optRow .fast .badge { display: block; }
+  #navStats { display: none; margin-top: 2px; }
+  #navStats .big { font-size: 32px; font-weight: 700; line-height: 1.15; }
+  #navStats .meta { color: #555; font-size: 15px; }
+  #navStats .chip { display: inline-block; margin-top: 8px; padding: 4px 11px; border-radius: 14px; font-size: 13px; font-weight: 600; }
+  .ok { color: #0a7d33; } .slow { color: #b86a00; } .jam { color: #c5221f; }
+  .chip.ok { background: #e3f4e8; } .chip.slow { background: #fff0d9; } .chip.jam { background: #fde4e2; } .chip.na { background: #eceff3; color: #555; }
+  body:not(.navactive) #nav { border-radius: 18px; padding: 14px 16px 16px; }
+  body:not(.navactive) #navMain { font-size: 16px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body:not(.navactive) #nav .row > button { border-radius: 12px; }
+  body:not(.navactive) #nav #navGo { padding: 13px 14px; font-size: 16px; }
+  #trafficErr { display: none; margin-top: 6px; float: right; clear: both; font: inherit; font-size: 13px; padding: 6px 10px; border: 0; border-radius: 16px;
+    background: #fde4e2; color: #8c1d18; box-shadow: 0 1px 6px rgba(0,0,0,.3); cursor: pointer; }
   #noKey { display: none; margin-top: 6px; float: right; font: inherit; font-size: 13px; padding: 6px 10px; border: 0; border-radius: 16px;
     background: #fff3cd; color: #5c4400; box-shadow: 0 1px 6px rgba(0,0,0,.3); cursor: pointer; }
   #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
@@ -91,6 +106,7 @@
 <form id="search">
   <input id="q" type="search" placeholder="🔍 ค้นหาสถานที่ แล้วกด Enter" autocomplete="off" enterkeyhint="search">
   <ul id="results"></ul>
+  <button type="button" id="trafficErr">⚠️ โหลดเส้นจราจรไม่ได้ — แตะเพื่อตรวจ key</button>
   <button type="button" id="noKey">🚦 ยังไม่แสดงรถติด — แตะเพื่อเปิดใช้</button>
 </form>
 
@@ -124,9 +140,10 @@
 <div id="nav">
   <div id="navMain"></div>
   <div id="navSub"></div>
+  <div id="navStats"></div>
   <div class="row" id="optRow">
-    <button id="optToll">🛣️ ขึ้นทางด่วน<small></small></button>
-    <button id="optFree">🚫 ไม่ขึ้นทางด่วน<small></small></button>
+    <button id="optToll"><b>ขึ้นทางด่วน</b><span class="t"></span><small></small><i class="badge">เร็วสุด</i></button>
+    <button id="optFree"><b>ไม่ขึ้นทางด่วน</b><span class="t"></span><small></small><i class="badge">เร็วสุด</i></button>
   </div>
   <div class="row">
     <button id="navGo"></button>
@@ -232,9 +249,10 @@ map.on('moveend', () => {
 });
 map.on('error', e => {
   const msg = (e.error && e.error.message) || '';
-  if (/traffic|tomtom|403|401/i.test(msg + ((e.source && e.source.tiles) || ''))) {
-    $('err').style.display = 'block';
-    $('err').textContent = 'โหลดข้อมูล TomTom ไม่ได้ — ตรวจ API key';
+  const st = e.error && e.error.status;
+  if (['flow', 'inc', 'base'].includes(e.sourceId) && [400, 401, 403, 429].includes(st)) {   // key ผิด / โควตาหมด
+    $('trafficErr').style.display = 'block';
+    $('trafficErr').textContent = st === 429 ? '⚠️ ใช้จราจรเกินโควตาวันนี้' : '⚠️ โหลดเส้นจราจรไม่ได้ — แตะเพื่อตรวจ key';
   }
 });
 
@@ -525,7 +543,7 @@ function drawRoute() {
   const lay = { 'line-cap': 'round', 'line-join': 'round' };
   const add = (id, kind, paint) => map.addLayer({ id, type: 'line', source: 'route', layout: lay, filter: ['==', ['get', 'kind'], kind], paint }, before);
   add('route-alt', 'alt', { 'line-color': '#8a94a6', 'line-width': 6, 'line-opacity': 0.8 });
-  const wd = k => ['interpolate', ['linear'], ['zoom'], 10, 5 * k, 15, 8 * k, 18, 15 * k];
+  const wd = k => ['interpolate', ['linear'], ['zoom'], 8, 6 * k, 15, 8 * k, 18, 15 * k];
   add('route-case', 'main', { 'line-color': '#0b3d91', 'line-width': wd(1.45) });
   add('route', 'main', { 'line-color': '#3d8bff', 'line-width': wd(1) });
   add('route-jam', 'jam', { 'line-color': JAM, 'line-width': wd(1) });
@@ -620,7 +638,7 @@ const carLayer = {
     car.h = car.hFrom + (((car.hTo - car.hFrom) % 360 + 540) % 360 - 180) * t;
     const mc = maplibregl.MercatorCoordinate.fromLngLat(car.pos, 0), s = mc.meterInMercatorCoordinateUnits();
     const mpp = 40075016.686 * Math.cos(rad(car.pos[1])) / (512 * Math.pow(2, map.getZoom()));
-    const k = Math.max(1, CONFIG.car.screenPx * mpp / 4.7);          // ขยายรถให้เห็นชัดเมื่อซูมออก
+    const k = Math.max(1, (navOn ? CONFIG.car.screenPx : Math.min(CONFIG.car.screenPx, 44)) * mpp / 4.7);          // ขยายรถให้เห็นชัดเมื่อซูมออก
     const l = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z).scale(new THREE.Vector3(s * k, -s * k, s * k))
       .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationY(-rad(car.h)));
     this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix).multiply(l);
@@ -655,7 +673,10 @@ function sheet(main, sub, go, close) {
   $('navSave').style.display = dest && !navOn ? '' : 'none';
   $('saveRow').style.display = 'none';
   $('optRow').style.display = 'none';
+  $('navStats').style.display = 'none'; $('navSub').style.display = '';
+  liftControls();
 }
+function liftControls() { document.body.style.setProperty('--sheet', ($('nav').offsetHeight + 16) + 'px'); }
 $('navSave').onclick = () => { $('saveRow').style.display = $('saveRow').style.display === 'flex' ? 'none' : 'flex'; };
 for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => {
   if (!dest) return;
@@ -712,18 +733,28 @@ function showPreview(fit) {
   route = useFree ? routeOpts.free : routeOpts.toll;
   altRoute = both ? (useFree ? routeOpts.toll : routeOpts.free) : null;
   drawRoute();
+  sheet(dest.label, '', '▶ เริ่มนำทาง', 'ยกเลิก');
+  // สรุปเส้นทาง: เวลาตัวใหญ่ (สีตามความติด) + ระยะทาง + เวลาถึง + ป้ายสภาพจราจร
+  const lvl = !route.traffic ? 'na' : route.delay <= 60 ? 'ok' : route.delay <= 600 ? 'slow' : 'jam';
+  const eta = new Date(Date.now() + route.dur * 1000).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  const chip = { na: 'ยังไม่รู้สภาพรถติด (ไม่มี key)', ok: 'รถไม่ติด', slow: `รถติด ช้าลง ${fmtT(route.delay || 0)}`, jam: `รถติดมาก ช้าลง ${fmtT(route.delay || 0)}` }[lvl];
+  $('navSub').style.display = 'none'; $('navStats').style.display = 'block';
+  $('navStats').innerHTML = `<div class="big ${lvl === 'na' ? '' : lvl}">${fmtT(route.dur)}</div>` +
+    `<div class="meta">${fmtD(route.dist)} · ถึง ${eta} น.${both ? '' : ' · ไม่ผ่านทางด่วน'}</div><span class="chip ${lvl}">${chip}</span>`;
+  if (both) {
+    $('optRow').style.display = 'flex';
+    const fastest = routeOpts.toll.dur <= routeOpts.free.dur ? 'optToll' : 'optFree';
+    for (const [id, r, on] of [['optToll', routeOpts.toll, !useFree], ['optFree', routeOpts.free, useFree]]) {
+      $(id).classList.toggle('on', on); $(id).classList.toggle('fast', id === fastest);
+      $(id).querySelector('.t').textContent = fmtT(r.dur);
+      $(id).querySelector('small').textContent = fmtD(r.dist) + (r.traffic && r.delay > 60 ? ` · ติด +${fmtT(r.delay)}` : '');
+    }
+  }
+  liftControls();
   if (fit) {
     const all = route.coords.concat(altRoute ? altRoute.coords : []);
     const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
-    map.fitBounds(b, { padding: { top: 90, bottom: 260, left: 50, right: 50 }, pitch: 0, bearing: 0 });
-  }
-  sheet(dest.label, previewText() + (both ? '' : ' · เส้นทางนี้ไม่ผ่านทางด่วน'), '▶ เริ่มนำทาง', 'ยกเลิก');
-  if (both) {
-    $('optRow').style.display = 'flex';
-    for (const [id, r, on] of [['optToll', routeOpts.toll, !useFree], ['optFree', routeOpts.free, useFree]]) {
-      $(id).classList.toggle('on', on);
-      $(id).querySelector('small').textContent = `${fmtT(r.dur)} · ${fmtD(r.dist)}`;
-    }
+    map.fitBounds(b, { padding: { top: 90, bottom: $('nav').offsetHeight + 50, left: 50, right: 50 }, pitch: 0, bearing: 0 });
   }
 }
 $('optToll').onclick = () => { avoidToll = false; store.set('opt_avoidToll', false); showPreview(false); };
@@ -843,6 +874,7 @@ $('tilt').onclick = () => map.easeTo(map.getPitch() > 5
 
 const syncNoKey = () => { $('noKey').style.display = key ? 'none' : 'block'; };
 $('noKey').onclick = () => openKey();
+$('trafficErr').onclick = () => openKey();
 syncNoKey();
 function openKey() { $('keyInput').value = key; $('keyBox').style.display = 'flex'; }
 $('changeKey').onclick = openKey;
@@ -850,7 +882,7 @@ $('skipKey').onclick = () => { $('keyBox').style.display = 'none'; store.set('ke
 $('saveKey').onclick = () => {
   const v = $('keyInput').value.trim();
   if (!v) return;
-  key = v; store.set('tomtomKey', v); syncNoKey();
+  key = v; store.set('tomtomKey', v); syncNoKey(); $('trafficErr').style.display = 'none';
   $('keyBox').style.display = 'none'; $('err').style.display = 'none';
   map.setStyle(theme() === 'dark' ? darkStyle() : CONFIG.lightStyle, { diff: false });   // โหลดใหม่ให้ชั้นจราจรใช้ key ใหม่
 };
