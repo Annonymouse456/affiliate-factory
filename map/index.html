@@ -204,8 +204,10 @@ let key = store.get('tomtomKey', '');
 let stamp = Date.now();
 
 const T = 'https://api.tomtom.com';
-const flowTiles = () => [`${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}&thickness=${CONFIG.flowThickness}&t=${stamp}`];
-const incTiles  = () => [`${T}/traffic/map/4/tile/incidents/${CONFIG.incidentStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`];
+let flowPlain = false;   // true = ขอเส้นจราจรแบบไม่ระบุความหนา (ใช้เมื่อ TomTom ปฏิเสธพารามิเตอร์)
+const trafficFails = new Map();
+const flowTiles = () => [`${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}` + (flowPlain ? '' : `&thickness=${CONFIG.flowThickness}`)];
+const incTiles  = () => [`${T}/traffic/map/4/tile/incidents/${CONFIG.incidentStyle}/{z}/{x}/{y}.png?key=${key}`];
 
 // ธีมมืด: พื้นแผนที่ TomTom night + ตึกจาก OSM
 const darkStyle = () => ({
@@ -248,12 +250,16 @@ map.on('moveend', () => {
   store.set('view3d', JSON.stringify({ c: [c.lng, c.lat], z: map.getZoom(), p: map.getPitch(), b: map.getBearing() }));
 });
 map.on('error', e => {
-  const msg = (e.error && e.error.message) || '';
-  const st = e.error && e.error.status;
-  if (['flow', 'inc', 'base'].includes(e.sourceId) && [400, 401, 403, 429].includes(st)) {   // key ผิด / โควตาหมด
-    $('trafficErr').style.display = 'block';
-    $('trafficErr').textContent = st === 429 ? '⚠️ ใช้จราจรเกินโควตาวันนี้' : '⚠️ โหลดเส้นจราจรไม่ได้ — แตะเพื่อตรวจ key';
+  const st = e.error && e.error.status, src = e.sourceId;
+  if (!['flow', 'inc', 'base'].includes(src) || ![400, 401, 403, 429].includes(st)) return;
+  if (src === 'flow' && st === 400 && String(e.error.url || '').includes('thickness')) {   // ลองใหม่แบบไม่ใส่ความหนาเส้น
+    if (!flowPlain) { flowPlain = true; map.getSource('flow').setTiles(flowTiles()); }
+    return;
   }
+  trafficFails.set({ flow: 'เส้นรถติด', inc: 'อุบัติเหตุ', base: 'แผนที่ธีมมืด' }[src], st);
+  const why = st === 429 ? 'เกินโควตาวันนี้' : st === 400 ? 'คำขอไม่ถูกต้อง' : 'key ไม่มีสิทธิ์ใช้บริการนี้';
+  $('trafficErr').style.display = 'block';
+  $('trafficErr').textContent = `⚠️ โหลด${[...trafficFails.keys()].join(' + ')}ไม่ได้ — ${why} (รหัส ${st})`;
 });
 
 // ---- เติมชั้นตึก 3D + จราจร ทุกครั้งที่โหลด style ----
@@ -875,6 +881,7 @@ $('tilt').onclick = () => map.easeTo(map.getPitch() > 5
 const syncNoKey = () => { $('noKey').style.display = key ? 'none' : 'block'; };
 $('noKey').onclick = () => openKey();
 $('trafficErr').onclick = () => openKey();
+map.on('style.load', () => { trafficFails.clear(); $('trafficErr').style.display = 'none'; });
 syncNoKey();
 function openKey() { $('keyInput').value = key; $('keyBox').style.display = 'flex'; }
 $('changeKey').onclick = openKey;
