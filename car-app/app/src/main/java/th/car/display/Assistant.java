@@ -1,6 +1,13 @@
 package th.car.display;
 
+import android.app.SearchManager;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
+import android.provider.MediaStore;
 import android.content.SharedPreferences;
 import android.location.Location;
 import android.media.AudioManager;
@@ -167,6 +174,65 @@ final class Assistant {
         return String.format(Locale.US, "ถาม Claude ไปแล้ว %d ครั้ง · ค้นเว็บ %d ครั้ง · ประมาณ $%.2f (ไม่รวมค่าค้นเว็บและค่าเสียงของ OpenAI)", p.getInt("aiAsks", 0), p.getInt("aiSearches", 0), dollars);
     }
 
+    // ------------------------------------------------------------------ acting on other apps on the head unit
+
+    private boolean installed(String pkg) {
+        try { app.getPackageManager().getPackageInfo(pkg, 0); return true; } catch (PackageManager.NameNotFoundException e) { return false; }
+    }
+
+    private String navigate(String destination) {
+        if (destination.isEmpty()) return "No destination was given.";
+        try {
+            Intent go;
+            if (installed("com.google.android.apps.maps")) {
+                go = new Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=" + Uri.encode(destination))).setPackage("com.google.android.apps.maps");
+            } else {
+                go = new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(destination)));
+                if (go.resolveActivity(app.getPackageManager()) == null) return "No maps app is installed on the head unit, so navigation could not be started.";
+            }
+            app.startActivity(go.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return "The maps app was opened with this destination. It may take a moment to load, and it needs internet to find the route.";
+        } catch (Throwable e) { return "The maps app could not be opened: " + e.getClass().getSimpleName(); }
+    }
+
+    private String playMusic(String query) {
+        if (query.isEmpty()) return "Nothing to search for was given.";
+        String[] players = {"com.google.android.apps.youtube.music", "com.spotify.music", "com.google.android.youtube"};
+        for (String pkg : players) {
+            if (!installed(pkg)) continue;
+            try {
+                Intent play = new Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).setPackage(pkg)
+                        .putExtra(SearchManager.QUERY, query).putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (play.resolveActivity(app.getPackageManager()) == null) continue;
+                app.startActivity(play);
+                return "Asked " + pkg + " to play this. It was not confirmed that playback started.";
+            } catch (Throwable ignored) { }
+        }
+        return "No music app on the head unit accepted the request. YouTube Music or Spotify would need to be installed on the head unit itself.";
+    }
+
+    private String openApp(String wanted) {
+        try {
+            PackageManager pm = app.getPackageManager();
+            Intent launchers = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+            String want = wanted.toLowerCase(Locale.US);
+            StringBuilder names = new StringBuilder();
+            ResolveInfo close = null;
+            for (ResolveInfo info : pm.queryIntentActivities(launchers, 0)) {
+                if (info.activityInfo == null) continue;
+                String label = String.valueOf(info.loadLabel(pm));
+                if (names.length() < 700) names.append(names.length() > 0 ? ", " : "").append(label);
+                String low = label.toLowerCase(Locale.US);
+                if (!want.isEmpty() && low.equals(want)) { close = info; break; }
+                if (close == null && !want.isEmpty() && (low.contains(want) || info.activityInfo.packageName.toLowerCase(Locale.US).contains(want))) close = info;
+            }
+            if (close == null) return "No installed app matches that name. Installed apps: " + names;
+            app.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .setComponent(new ComponentName(close.activityInfo.packageName, close.activityInfo.name)));
+            return "Opened " + close.loadLabel(pm) + ".";
+        } catch (Throwable e) { return "The app could not be opened: " + e.getClass().getSimpleName(); }
+    }
+
     // ------------------------------------------------------------------ tools Claude can call
 
     private Object tool(String name, JSONObject input, Car c) throws Exception {
@@ -176,6 +242,9 @@ final class Assistant {
             NowPlaying.get().press(key);
             return "Sent " + action + " to the phone.";
         }
+        if ("navigate_to".equals(name)) return navigate(input.optString("destination").trim());
+        if ("play_music".equals(name)) return playMusic(input.optString("query").trim());
+        if ("open_app".equals(name)) return openApp(input.optString("name").trim());
         if (c == null) return "The display overlay is not running, so this cannot be done right now.";
         if ("set_speed_limit".equals(name)) {
             int kmh = input.optInt("kmh", -1);

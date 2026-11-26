@@ -38,7 +38,7 @@ final class ClaudeClient {
             + "- Keep it short enough to take in while driving: usually one to three sentences. Give the single most useful thing first. The driver can ask a follow-up.\n"
             + "- Never ask the driver to look at or read the screen.\n\n"
             + "What you know: each request starts with a block of live readings from the car (position, road, heading, speed, trip so far, time, and the track playing). Treat it as the present moment and place. Distances and directions should be relative to the car.\n\n"
-            + "Tools: use web search for anything current, such as road closures, accidents, roadworks, flooding, weather, opening hours or news about the road ahead. Search in Thai when the subject is local. Use nearby_places for things around the car, look_at_road when the driver asks about something they can see ahead, and the control tools when they ask you to change the display or the music.\n\n"
+            + "Tools: use web search for anything current, such as road closures, accidents, roadworks, flooding, weather, opening hours or news about the road ahead. Search in Thai when the subject is local. Use nearby_places for things around the car, look_at_road when the driver asks about something they can see ahead, navigate_to, play_music and open_app to act on the head unit when the driver asks you to take them somewhere, play something or open an app, and the control tools when they ask you to change the display or the phone's music. When a tool reports that it could not do something, tell the driver plainly rather than implying it worked.\n\n"
             + "Being straight with the driver matters more than sounding helpful, because they may change their route on what you say:\n"
             + "- When you report something from the web, say how old it is, for example that it was reported this morning or two days ago. If you cannot tell how recent it is, say so.\n"
             + "- Police checkpoints are rarely published anywhere you can search. If asked, report only what you actually found and say plainly that you cannot see live checkpoint reports.\n"
@@ -180,6 +180,15 @@ final class ClaudeClient {
         tools.put(tool("look_at_road",
                 "Get one still frame of what the forward dashcam shows right now. Use it when the driver asks about something visible ahead: a sign, a shop, a landmark, the weather. The frame is a moment old by the time you see it.",
                 new JSONObject()));
+        tools.put(tool("navigate_to",
+                "Start turn-by-turn navigation on the head unit's own maps app. Use it when the driver asks to be taken somewhere, including right after you found the place for them. Give a place name with its town, or exact coordinates from nearby_places. The maps app comes to the front of the screen.",
+                new JSONObject().put("destination", prop("string", "Place name and town in Thai or English, or 'latitude,longitude'.")), "destination"));
+        tools.put(tool("play_music",
+                "Ask a music app installed on the head unit to search for and play something. This plays from the head unit itself, not from the driver's phone; for the phone's music use media_control. Whether it works depends on which music apps are installed.",
+                new JSONObject().put("query", prop("string", "Artist, song, album or genre to play.")), "query"));
+        tools.put(tool("open_app",
+                "Bring an app installed on the head unit to the front, by the name on its icon. If no app matches, the result lists the apps that are installed so you can pick the right one or tell the driver.",
+                new JSONObject().put("name", prop("string", "App name or part of it, for example YouTube, Maps, Radio or the dashcam app.")), "name"));
         tools.put(tool("set_speed_limit",
                 "Set the speed-limit sign on the display. The display warns the driver above this speed.",
                 new JSONObject().put("kmh", prop("integer", "Limit in km/h, 20 to 130.")), "kmh"));
