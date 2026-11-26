@@ -262,7 +262,15 @@ map.on('error', e => {
   const st = e.error && e.error.status, src = e.sourceId;
   if (!['flow', 'inc', 'base'].includes(src) || ![400, 401, 403, 429].includes(st)) return;
   if (src === 'flow' && st === 400 && String(e.error.url || '').includes('thickness')) {   // ลองใหม่แบบไม่ใส่ความหนาเส้น
-    if (!flowPlain) { flowPlain = true; map.getSource('flow').setTiles(flowTiles()); }
+    if (!flowPlain) {                 // ถอดชั้นเส้นจราจรออกแล้วใส่ใหม่ด้วย URL แบบไม่มีความหนา
+      flowPlain = true;
+      setTimeout(() => { try {
+        if (map.getLayer('flow')) map.removeLayer('flow');
+        if (map.getSource('flow')) map.removeSource('flow');
+        decorate();
+        if (navOn && map.getLayer('flow')) map.setLayoutProperty('flow', 'visibility', 'none');
+      } catch {} }, 300);
+    }
     return;
   }
   trafficFails.set({ flow: 'เส้นรถติด', inc: 'อุบัติเหตุ', base: 'แผนที่ธีมมืด' }[src], st);
