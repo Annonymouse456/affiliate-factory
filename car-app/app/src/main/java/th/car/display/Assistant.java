@@ -56,6 +56,28 @@ final class Assistant {
     private volatile Recorder recorder;
     private volatile MediaPlayer player;
     private Listener listener;
+
+    // Short memory for follow-up questions: the last few exchanges, forgotten ten minutes after the last one.
+    private static final long REMEMBER_MS = 10 * 60 * 1000;
+    private final java.util.ArrayList<String[]> recent = new java.util.ArrayList<>();
+    private long lastExchange;
+
+    private synchronized String earlier() {
+        if (android.os.SystemClock.elapsedRealtime() - lastExchange > REMEMBER_MS) recent.clear();
+        StringBuilder s = new StringBuilder();
+        for (String[] e : recent) s.append("Driver: ").append(e[0]).append("\nYou: ").append(e[1]).append("\n");
+        return s.toString().trim();
+    }
+
+    private synchronized void remember(String question, String answer) {
+        if (android.os.SystemClock.elapsedRealtime() - lastExchange > REMEMBER_MS) recent.clear();
+        recent.add(new String[]{question, answer});
+        while (recent.size() > 4) recent.remove(0);
+        lastExchange = android.os.SystemClock.elapsedRealtime();
+    }
+
+    static boolean femaleVoice(Context c) { return App.prefs(c).getBoolean("aiFemale", false) || sessionFemale; }
+    static volatile boolean sessionFemale;
     private Car car;
     private Context app;
 
@@ -123,10 +145,12 @@ final class Assistant {
         try {
             final Car c = car;
             String readings = c == null ? "ไม่มีข้อมูลจากรถในขณะนี้" : c.readings();
-            ClaudeClient.Answer a = new ClaudeClient(claudeKey(app)).ask(readings, question, "TH", new ClaudeClient.Tools() {
+            boolean briefing = question.startsWith("Check for anything on the road ahead");      // the automatic briefing is not part of the conversation
+            ClaudeClient.Answer a = new ClaudeClient(claudeKey(app)).ask(readings, briefing ? "" : earlier(), question, femaleVoice(app), new ClaudeClient.Tools() {
                 @Override public Object run(String name, JSONObject input) throws Exception { return tool(name, input, c); }
             });
             count(a);
+            if (a.problem == null && !briefing) remember(question, a.text);
             if (a.problem != null) { audio.abandonAudioFocus(null); show(State.IDLE, a.problem); return; }
             if (!aloud) { audio.abandonAudioFocus(null); show(State.IDLE, a.text); return; }
             show(State.SPEAKING, a.text);
@@ -140,7 +164,7 @@ final class Assistant {
     /** Read the answer aloud. If speech fails the written answer stays on the card, with the reason. */
     private void speak(final String text, AudioManager audio) {
         try {
-            final byte[] mp3 = new Speech(openAiKey(app)).speak(text);
+            final byte[] mp3 = new Speech(openAiKey(app)).speak(text, femaleVoice(app));
             audio.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
             MediaPlayer p = new MediaPlayer();
             player = p;
@@ -169,6 +193,9 @@ final class Assistant {
             p.setOnErrorListener(new MediaPlayer.OnErrorListener() { @Override public boolean onError(MediaPlayer mp, int what, int extra) { stopSpeaking(); show(State.IDLE, text + "\n(เล่นเสียงตอบไม่ได้ รหัส " + what + ")"); return true; } });
             p.prepare();
             p.start();
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                try { p.setPlaybackParams(p.getPlaybackParams().setSpeed(1.15f)); } catch (Throwable ignored) { }      // a little brisker than the voice's own pace
+            }
         } catch (Speech.Failure e) {
             stopSpeaking();
             show(State.IDLE, text + "\n(พูดตอบไม่ได้: " + e.getMessage() + ")");

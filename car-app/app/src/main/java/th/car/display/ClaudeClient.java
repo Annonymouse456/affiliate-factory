@@ -37,6 +37,7 @@ final class ClaudeClient {
             + "- Reply in Thai, in plain spoken sentences. Your words are converted to speech, so write nothing that cannot be said aloud: no lists, headings, links, symbols or emoji.\n"
             + "- Keep it short enough to take in while driving: usually one to three sentences. Give the single most useful thing first. The driver can ask a follow-up.\n"
             + "- Never ask the driver to look at or read the screen.\n\n"
+            + "Follow-ups: when the request includes earlier exchanges from this conversation, the driver may be continuing them. Resolve words like that one, there, the next one or again from those exchanges instead of asking what they mean.\n\n"
             + "What you know: each request starts with a block of live readings from the car (position, road, heading, speed, trip so far, time, and the track playing). Treat it as the present moment and place. Distances and directions should be relative to the car.\n\n"
             + "Tools: use web search for anything current, such as road closures, accidents, roadworks, flooding, weather, opening hours or news about the road ahead. The car is in Thailand: search in Thai and name the province, district or road in the query, since the search tool is not told where the car is. Use nearby_places for things around the car, look_at_road when the driver asks about something they can see ahead, navigate_to, play_music and open_app to act on the head unit when the driver asks you to take them somewhere, play something or open an app, and the control tools when they ask you to change the display or the phone's music. When a tool reports that it could not do something, tell the driver plainly rather than implying it worked.\n\n"
             + "Being straight with the driver matters more than sounding helpful, because they may change their route on what you say:\n"
@@ -45,19 +46,31 @@ final class ClaudeClient {
             + "- If a search finds nothing relevant, say that you found no reports, which is different from saying the road is clear.\n"
             + "- What you see through the camera is a single still frame a moment old. Describe it; do not tell the driver it is safe to proceed, overtake or turn.";
 
+    // Thai marks the speaker's gender in every polite sentence; the wording has to match the voice that reads it out.
+    private static final String VOICE_MALE = "\n\nYour words are read aloud in a man's voice. Speak as a man does in Thai: end polite sentences with ครับ and refer to yourself as ผม. Never use ค่ะ, คะ or ดิฉัน.";
+    private static final String VOICE_FEMALE = "\n\nYour words are read aloud in a woman's voice. Speak as a woman does in Thai: end polite sentences with ค่ะ or คะ and refer to yourself as ฉัน or ดิฉัน. Never use ครับ or ผม.";
+
     private final String apiKey;
+    private boolean female;
 
     ClaudeClient(String apiKey) { this.apiKey = apiKey; }
 
-    Answer ask(String carReadings, String question, String country, Tools tools) {
+    /**
+     * @param earlier  the last few questions and answers as plain text, or empty; lets the driver ask follow-ups
+     * @param female   whether the speaking voice is a woman's, so the Thai wording matches it
+     */
+    Answer ask(String carReadings, String earlier, String question, boolean female, Tools tools) {
+        this.female = female;
         Answer answer = new Answer();
         try {
             JSONArray messages = new JSONArray();
             messages.put(new JSONObject().put("role", "user").put("content",
-                    "<car_readings>\n" + carReadings + "\n</car_readings>\n\n" + question));
+                    "<car_readings>\n" + carReadings + "\n</car_readings>\n\n"
+                            + (earlier == null || earlier.isEmpty() ? "" : "<earlier_in_this_conversation>\n" + earlier + "\n</earlier_in_this_conversation>\n\n")
+                            + question));
 
             for (int step = 0; step < MAX_STEPS; step++) {
-                JSONObject reply = send(messages, country, answer);
+                JSONObject reply = send(messages, answer);
                 if (reply == null) return answer;
                 JSONArray content = reply.optJSONArray("content");
                 if (content == null) content = new JSONArray();
@@ -123,15 +136,15 @@ final class ClaudeClient {
     }
 
     /** One request, retried once when the service is busy. Returns null after setting answer.problem. */
-    private JSONObject send(JSONArray messages, String country, Answer answer) throws Exception {
+    private JSONObject send(JSONArray messages, Answer answer) throws Exception {
         JSONObject body = new JSONObject()
                 .put("model", MODEL)
                 .put("max_tokens", 8000)
                 .put("output_config", new JSONObject().put("effort", "low"))     // spoken replies: favour a quick answer
                 .put("fallbacks", "default")                                       // if a safety filter declines, let the server route to another model
-                .put("system", new JSONArray().put(new JSONObject().put("type", "text").put("text", SYSTEM)
+                .put("system", new JSONArray().put(new JSONObject().put("type", "text").put("text", SYSTEM + (female ? VOICE_FEMALE : VOICE_MALE))
                         .put("cache_control", new JSONObject().put("type", "ephemeral"))))
-                .put("tools", toolList(country))
+                .put("tools", toolList())
                 .put("messages", messages);
         byte[] bytes = body.toString().getBytes(Http.UTF8);
         String[] headers = {"x-api-key", apiKey, "anthropic-version", API_VERSION, "anthropic-beta", "server-side-fallback-2026-07-01"};
@@ -167,7 +180,7 @@ final class ClaudeClient {
         return p;
     }
 
-    private static JSONArray toolList(String country) throws Exception {
+    private static JSONArray toolList() throws Exception {
         JSONArray tools = new JSONArray();
         // No user_location: the API rejects Thailand's country code there ("Country code TH is not supported").
         // Claude localises searches from the car readings and by searching in Thai instead.

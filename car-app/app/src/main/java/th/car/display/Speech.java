@@ -39,11 +39,13 @@ final class Speech {
         throw new Failure(reason(r, "ฟังเสียง"));
     }
 
-    /** Text in, MP3 audio out. */
-    byte[] speak(String text) throws Exception {
+    /** Text in, MP3 audio out, in a man's or a woman's voice. */
+    byte[] speak(String text, boolean female) throws Exception {
         Http.Reply r = null;
         for (String model : SPEAK_MODELS) {
-            JSONObject body = new JSONObject().put("model", model).put("voice", "alloy").put("input", text).put("response_format", "mp3");
+            JSONObject body = new JSONObject().put("model", model).put("voice", female ? "nova" : "onyx").put("input", text).put("response_format", "mp3");
+            // The newer model takes direction in words; the older one ignores this field's absence.
+            if (model.startsWith("gpt-4o")) body.put("instructions", "Speak Thai naturally, in a friendly and clear tone, at a brisk pace, a little faster than normal conversation.");
             r = Http.send("POST", "https://api.openai.com/v1/audio/speech", new String[]{"Authorization", "Bearer " + apiKey},
                     "application/json", body.toString().getBytes(Http.UTF8), 60000);
             if (r.ok() && r.body.length > 0) return r.body;
