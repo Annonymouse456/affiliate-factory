@@ -318,7 +318,7 @@ async function search(q) {
   const seq = ++searchSeq;
   try {
     const c = map.getCenter();
-    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=7&lat=${c.lat}&lon=${c.lng}`);
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=7&lang=default&lat=${c.lat}&lon=${c.lng}`);
     if (!r.ok) throw new Error(r.status);
     const feats = (await r.json()).features || [];
     if (seq !== searchSeq) return;              // มีการพิมพ์ใหม่แล้ว ทิ้งผลเก่า
