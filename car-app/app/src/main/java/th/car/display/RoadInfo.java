@@ -35,7 +35,7 @@ class RoadInfo {
                 Result r = null;
                 String problem = "ไม่มีเน็ต";
                 for (String server : SERVERS) {
-                    try { r = ask(server, lat, lon); break; } catch (Throwable e) { problem = e.getClass().getSimpleName(); }
+                    try { r = ask(server, lat, lon); break; } catch (Throwable e) { problem = e instanceof java.net.SocketTimeoutException ? "บริการแผนที่ตอบช้า" : e instanceof java.io.IOException ? "ต่อบริการแผนที่ไม่ได้" : e.getClass().getSimpleName(); }
                 }
                 if (r == null) { r = new Result(); r.error = problem; }
                 final Result out = r;
@@ -50,7 +50,7 @@ class RoadInfo {
     }
 
     private static JSONObject overpass(String server, String query) throws Exception {
-        Http.Reply r = Http.send("GET", server + "?data=" + URLEncoder.encode(query, "UTF-8"), new String[]{"User-Agent", "car-display-app/2.0"}, null, null, 12000);
+        Http.Reply r = Http.send("GET", server + "?data=" + URLEncoder.encode(query, "UTF-8"), new String[]{"User-Agent", "car-display-app/2.0"}, null, null, 25000);
         if (!r.ok()) throw new java.io.IOException("HTTP " + r.code);
         return new JSONObject(r.text());
     }
