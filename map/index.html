@@ -2,6 +2,9 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="My Map">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>My Map 3D — เมือง 3 มิติ + จราจรสด</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
@@ -52,6 +55,10 @@
   body.navopen .maplibregl-ctrl-bottom-right, body.navopen .maplibregl-ctrl-bottom-left { bottom: 150px; }
   body.navactive #search, body.navactive .panel { display: none; }
   .me { width: 18px; height: 18px; border-radius: 50%; background: #1668e3; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(22,104,227,.35), 0 1px 4px rgba(0,0,0,.4); }
+  #results { max-height: 60vh; overflow-y: auto; }
+  #results li.chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px; cursor: default; }
+  #results li.chips button { flex: none; font: inherit; padding: 6px 10px; border: 1px solid #ccc; border-radius: 16px; background: #f5f5f5; color: #111; cursor: pointer; }
+  #saveRow { display: none; }
   #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
 </style>
 </head>
@@ -89,8 +96,14 @@
   <div id="navSub"></div>
   <div class="row">
     <button id="navGo"></button>
+    <button id="navSave" title="บันทึกสถานที่">⭐</button>
     <button id="navVoice" title="เสียงนำทาง">🔊</button>
     <button id="navClose">ปิด</button>
+  </div>
+  <div class="row" id="saveRow">
+    <button data-save="home">🏠 ตั้งเป็นบ้าน</button>
+    <button data-save="work">🏢 ที่ทำงาน</button>
+    <button data-save="fav">⭐ รายการโปรด</button>
   </div>
 </div>
 
@@ -251,29 +264,119 @@ function goTo(lngLat, label, fly) {
   if (fly !== false) map.flyTo({ center: lngLat, zoom: 16.5, pitch: CONFIG.pitch });
   setDest(lngLat, label);
 }
-$('search').addEventListener('submit', async e => {
-  e.preventDefault();
-  const q = $('q').value.trim(), box = $('results');
-  if (!q) { box.replaceChildren(); return; }
-  const li = t => { const el = document.createElement('li'); el.textContent = t; return el; };
-  box.replaceChildren(li('กำลังค้นหา…'));
+
+// --- ที่บันทึกไว้ + ประวัติ ---
+const loadJ = (k, d) => { try { return JSON.parse(store.get(k, '')) || d; } catch { return d; } };
+let places = loadJ('places', { home: null, work: null, favs: [] });
+let recents = loadJ('recents', []);
+function addRecent(p, label, sub) {
+  recents = [{ p, label, sub: sub || '' }, ...recents.filter(r => r.label !== label)].slice(0, 8);
+  store.set('recents', JSON.stringify(recents));
+}
+
+// --- หมวดสถานที่ใกล้เคียง (Overpass / OpenStreetMap) ---
+const CATS = [['⛽ ปั๊มน้ำมัน', 'amenity=fuel'], ['🍜 ร้านอาหาร', 'amenity=restaurant'], ['☕ คาเฟ่', 'amenity=cafe'],
+  ['🏪 สะดวกซื้อ', 'shop=convenience'], ['🏧 ATM', 'amenity=atm'], ['🅿️ ที่จอดรถ', 'amenity=parking'],
+  ['🏥 โรงพยาบาล', 'amenity=hospital'], ['💊 ร้านยา', 'amenity=pharmacy'], ['🔌 ชาร์จ EV', 'amenity=charging_station']];
+let poiMarkers = [];
+const clearPois = () => { poiMarkers.forEach(m => m.remove()); poiMarkers = []; };
+
+const box = $('results');
+const li = (text, sub, onclick) => {
+  const el = document.createElement('li'); el.textContent = text;
+  if (sub) { const sm = document.createElement('small'); sm.textContent = sub; el.append(sm); }
+  if (onclick) el.onclick = onclick;
+  return el;
+};
+function pick(p, label, sub, fly) {
+  box.replaceChildren(); $('q').value = label; $('q').blur();
+  addRecent(p, label, sub); goTo(p, label, fly);
+}
+
+// เมนูตอนแตะช่องค้นหา: หมวดใกล้เคียง, บ้าน/ที่ทำงาน, รายการโปรด, ประวัติ
+function showHome() {
+  const chips = document.createElement('li'); chips.className = 'chips';
+  for (const [label, tag] of CATS) {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    b.onclick = () => nearby(label, tag); chips.append(b);
+  }
+  const rows = [chips];
+  for (const [k, icon, name] of [['home', '🏠', 'บ้าน'], ['work', '🏢', 'ที่ทำงาน']]) {
+    const v = places[k];
+    rows.push(v ? li(`${icon} ${name}`, v.label, () => pick(v.p, v.label, ''))
+                : li(`${icon} ${name}`, 'ยังไม่ได้ตั้ง — เลือกสถานที่แล้วกด ⭐ เพื่อบันทึก'));
+  }
+  for (const f of places.favs) rows.push(li('⭐ ' + f.label, '', () => pick(f.p, f.label, '')));
+  for (const r of recents) rows.push(li('🕘 ' + r.label, r.sub, () => pick(r.p, r.label, r.sub)));
+  if (recents.length) rows.push(li('ล้างประวัติการค้นหา', '', () => { recents = []; store.set('recents', '[]'); showHome(); }));
+  box.replaceChildren(...rows);
+}
+
+// ค้นหาตามที่พิมพ์ (ขึ้นคำแนะนำเองระหว่างพิมพ์)
+let searchSeq = 0, typeTimer;
+async function search(q) {
+  const seq = ++searchSeq;
   try {
     const c = map.getCenter();
-    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${c.lat}&lon=${c.lng}`);
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=7&lat=${c.lat}&lon=${c.lng}`);
     if (!r.ok) throw new Error(r.status);
     const feats = (await r.json()).features || [];
-    if (!feats.length) { box.replaceChildren(li('ไม่พบสถานที่')); return; }
+    if (seq !== searchSeq) return;              // มีการพิมพ์ใหม่แล้ว ทิ้งผลเก่า
+    if (!feats.length) { box.replaceChildren(li('ไม่พบสถานที่', 'ลองพิมพ์สั้นลง หรือใช้ชื่อภาษาอังกฤษ')); return; }
+    const here = [c.lng, c.lat];
     box.replaceChildren(...feats.map(f => {
-      const p = f.properties, name = p.name || p.street || q;
-      const el = li(name), sub = document.createElement('small');
-      sub.textContent = [p.street, p.district, p.city, p.state, p.country].filter(x => x && x !== name).join(', ');
-      el.append(sub);
-      el.onclick = () => { box.replaceChildren(); $('q').value = name; $('q').blur(); goTo(f.geometry.coordinates, name); };
-      return el;
+      const pr = f.properties, name = pr.name || pr.street || q;
+      const where = [pr.street, pr.district, pr.city, pr.state, pr.country].filter(x => x && x !== name).join(', ');
+      return li(name, `${fmtD(dist(here, f.geometry.coordinates))} · ${where}`, () => pick(f.geometry.coordinates, name, where));
     }));
-  } catch { box.replaceChildren(li('ค้นหาไม่ได้ — ตรวจอินเทอร์เน็ต')); }
+  } catch { if (seq === searchSeq) box.replaceChildren(li('ค้นหาไม่ได้ — ตรวจอินเทอร์เน็ต')); }
+}
+$('q').addEventListener('input', () => {
+  clearTimeout(typeTimer);
+  const q = $('q').value.trim();
+  if (q.length < 2) { searchSeq++; showHome(); return; }
+  typeTimer = setTimeout(() => search(q), 350);
 });
-$('q').addEventListener('input', () => { if (!$('q').value) $('results').replaceChildren(); });
+$('q').addEventListener('focus', () => { if ($('q').value.trim().length < 2) showHome(); });
+$('search').addEventListener('submit', e => {
+  e.preventDefault(); clearTimeout(typeTimer);
+  const q = $('q').value.trim();
+  if (q) { box.replaceChildren(li('กำลังค้นหา…')); search(q); }
+});
+
+async function nearby(label, tag) {
+  clearPois(); $('q').value = label; $('q').blur();
+  box.replaceChildren(li('กำลังหา ' + label + ' ใกล้บริเวณนี้…'));
+  const c = map.getCenter().toArray(), [k, v] = tag.split('=');
+  const ql = `[out:json][timeout:15];nwr(around:3000,${c[1]},${c[0]})["${k}"="${v}"];out center 60;`;
+  try {
+    const r = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(ql));
+    if (!r.ok) throw new Error(r.status);
+    const items = ((await r.json()).elements || []).map(e => {
+      const t = e.tags || {}, p = e.center ? [e.center.lon, e.center.lat] : [e.lon, e.lat];
+      return { p, name: t['name:th'] || t.name || t.brand || label.replace(/^\S+\s/, ''), d: dist(c, p) };
+    }).filter(x => x.p[0] != null).sort((a, b) => a.d - b.d).slice(0, 15);
+    if (!items.length) { box.replaceChildren(li('ไม่พบในระยะ 3 กม.', 'เลื่อนแผนที่ไปบริเวณอื่นแล้วลองใหม่')); return; }
+    for (const it of items) {
+      const m = new maplibregl.Marker({ color: '#f08c00', scale: 0.7 }).setLngLat(it.p).addTo(map);
+      m.getElement().addEventListener('click', ev => { ev.stopPropagation(); pick(it.p, it.name, label, false); });
+      poiMarkers.push(m);
+    }
+    box.replaceChildren(...items.map(it => li(it.name, fmtD(it.d), () => pick(it.p, it.name, label))));
+    const b = items.reduce((bb, it) => bb.extend(it.p), new maplibregl.LngLatBounds(c, c));
+    map.fitBounds(b, { padding: 70, pitch: 0, maxZoom: 16 });
+  } catch { box.replaceChildren(li('ค้นหาไม่ได้ — บริการอาจไม่ว่าง ลองใหม่อีกครั้ง')); }
+}
+
+// แตะชื่อสถานที่บนแผนที่ = เลือกเป็นปลายทาง, แตะที่ว่าง = ปิดรายการค้นหา
+map.on('click', e => {
+  $('q').blur(); box.replaceChildren();
+  if (navOn) return;
+  const pt = e.point, f = map.queryRenderedFeatures([[pt.x - 14, pt.y - 14], [pt.x + 14, pt.y + 14]])
+    .find(x => x.layer.type === 'symbol' && x.sourceLayer === 'poi' && x.properties.name && x.geometry.type === 'Point');
+  if (f) { addRecent(f.geometry.coordinates, f.properties.name, ''); goTo(f.geometry.coordinates, f.properties.name, false); }
+});
+map.on('dragstart', () => { $('q').blur(); box.replaceChildren(); });
 
 // ---- นำทาง ----
 // เส้นทาง: ถ้ามี TomTom key จะคิดเวลาตามจราจรสด + คำแนะนำภาษาไทยจาก TomTom
@@ -355,7 +458,18 @@ function sheet(main, sub, go, close) {
   $('navGo').style.display = go ? '' : 'none'; $('navGo').textContent = go || '';
   $('navClose').textContent = close || 'ปิด';
   $('navVoice').textContent = voice ? '🔊' : '🔇';
+  $('navSave').style.display = dest && !navOn ? '' : 'none';
+  $('saveRow').style.display = 'none';
 }
+$('navSave').onclick = () => { $('saveRow').style.display = $('saveRow').style.display === 'flex' ? 'none' : 'flex'; };
+for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => {
+  if (!dest) return;
+  const k = b.dataset.save, v = { p: dest.p, label: dest.label };
+  if (k === 'fav') places.favs = [v, ...places.favs.filter(f => f.label !== v.label)].slice(0, 10);
+  else places[k] = v;
+  store.set('places', JSON.stringify(places));
+  $('saveRow').style.display = 'none'; $('navSub').textContent = 'บันทึกแล้ว ✓';
+};
 function setDest(p, label) {
   if (navOn) return;
   dest = { p, label }; route = null; drawRoute();
@@ -367,6 +481,7 @@ function closeNav() {
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   if (window.speechSynthesis) speechSynthesis.cancel();
   if (pin) { pin.remove(); pin = null; }
+  clearPois();
   $('nav').style.display = 'none'; document.body.classList.remove('navopen', 'navactive');
 }
 function say(text) {
@@ -437,7 +552,8 @@ async function onPos(g) {
   const next = route.steps.find(x => x.at > along + 5);
   const main = next ? `อีก ${fmtD(next.at - along)} · ${next.text}` : 'ตรงไปจนถึงจุดหมาย';
   const eta = new Date(Date.now() + route.dur * remain / route.dist * 1000).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-  sheet(main, `เหลือ ${fmtD(remain)} · ${fmtT(route.dur * remain / route.dist)} · ถึง ${eta} น.`, null, 'จบการนำทาง');
+  sheet(main, `เหลือ ${fmtD(remain)} · ${fmtT(route.dur * remain / route.dist)} · ถึง ${eta} น.` +
+    (g.coords.speed >= 0.5 ? ` · ${Math.round(g.coords.speed * 3.6)} กม./ชม.` : ''), null, 'จบการนำทาง');
   if (next && next !== lastSpoken) { lastSpoken = next; say(main); }
 
   const c = route.coords, hd = g.coords.heading;
