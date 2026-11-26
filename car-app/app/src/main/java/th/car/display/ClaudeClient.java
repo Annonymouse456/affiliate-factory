@@ -204,7 +204,7 @@ final class ClaudeClient {
                 "Bring an app installed on the head unit to the front, by the name on its icon. If no app matches, the result lists the apps that are installed so you can pick the right one or tell the driver.",
                 new JSONObject().put("name", prop("string", "App name or part of it, for example YouTube, Maps, Radio or the dashcam app.")), "name"));
         tools.put(tool("set_speed_limit",
-                "Set the speed-limit sign on the display. The display warns the driver above this speed.",
+                "Set the speed above which the display warns the driver with a red dial and a tone. There is no sign on screen; a marker on the dial shows it.",
                 new JSONObject().put("kmh", prop("integer", "Limit in km/h, 20 to 130.")), "kmh"));
         tools.put(tool("set_path_overlay",
                 "Show or hide the blue lane band drawn over the camera picture.",

@@ -57,7 +57,7 @@ public class OverlayService extends Service {
 
     static volatile boolean running;
 
-    private static final int[] LIMITS = {60, 80, 90, 100, 120};
+    private static final int[] LIMITS = {0, 60, 80, 90, 100, 110, 120};     // over-speed warning choices; 0 is off
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFF9FB0B4, BASE = 0xF50B1014, PLATE = 0x1FFFFFFF, GLASS = 0xD90A0F12,
             BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D, LISTEN = 0xFFE5483D, THINK = 0xFFE0A93B, TALK = 0xFF46DBA0;
     /** Colour themes: three colours each, used for the dial, the orb, the borders and the glows. */
@@ -80,17 +80,17 @@ public class OverlayService extends Service {
     // dashboard layout
     private FrameLayout dash;
     private GaugeView gauge;
-    private TextView limitD, clockD, noteD, hintD, titleD, artistD, aiLabel;
+    private TextView clockD, dateD, noteD, titleD, artistD, aiLabel;
     private IconView playD;
     private OrbView orbD, orbC;
     private EqView eq;
     private DiscView disc;
     private TextView themeKey, voiceKey;
     private LinearLayout settings;
-    private TextView toneKey, bootKey, roadKey, briefKey, pathKey;
+    private TextView warnKey, bootKey, roadKey, briefKey, pathKey;
     // camera layout
     private LinearLayout strip, nudges;
-    private TextView speedC, limitC, noteC;
+    private TextView speedC, noteC;
     private PathView path;
     private boolean dashShown, stripShown;
 
@@ -119,7 +119,7 @@ public class OverlayService extends Service {
         super.onCreate();
         running = true;
         prefs = App.prefs(this);
-        limit = prefs.getInt("limit", 80);
+        limit = prefs.getInt("limit", 0);          // 0: no over-speed warning set
         startForeground(1, notice());
         windows = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
         DisplayMetrics dm = new DisplayMetrics();
@@ -282,42 +282,38 @@ public class OverlayService extends Service {
     private void buildDashboard() {
         final float u = unit, W = screenW, H = screenH;
         final int[] t = theme();
-        float column = W * 0.40f;                                   // left column: the dial
-        final RectF hole = new RectF(W * 0.415f, u * 4, W - u * 2.5f, u * 60);
+        float column = W * 0.40f;                                   // width of the settings sheet
+        final RectF hole = new RectF(W * 0.635f, u * 4, W - u * 2.5f, u * 37);      // a small camera window, top right
         dash = new Surface(this, hole, u * 3, t);
 
-        gauge = new GaugeView(this, t);
+        gauge = new GaugeView(this, t);                             // the dial, centred in the space left of the camera
         gauge.setLimit(limit);
-        place(dash, gauge, u * 1.5f, u * 2, u * 59, u * 59);
-        clockD = text("--:--", 4.6f, INK, true);
-        clockD.setGravity(Gravity.END);
-        place(dash, clockD, column - u * 20, u * 2.5f, u * 19, -1);
-        limitD = sign(5.2f);
-        place(dash, limitD, column - u * 15.5f, u * 46, u * 15, u * 15);
+        place(dash, gauge, (hole.left - u * 60) / 2f, u * 2, u * 60, u * 60);
 
-        // the camera window: tap it for the full picture; the co-pilot's words appear across its foot
-        FrameLayout window = new FrameLayout(this);
+        // tap the camera window for the full picture
+        View window = new View(this);
         window.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
-        hintD = text("แตะเพื่อดูกล้องเต็มจอ", 2.5f, INK, false);
-        hintD.setBackground(round(0x990A0F12, u * 2));
-        hintD.setPadding(unit * 2, unit / 2, unit * 2, unit / 2);
-        FrameLayout.LayoutParams hintAt = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.START);
-        hintAt.setMargins(unit * 2, 0, 0, unit * 2);
-        window.addView(hintD, hintAt);
-        noteD = text("", 3.1f, INK, false);
-        noteD.setMaxLines(4);
+        place(dash, window, hole.left, hole.top, hole.width(), hole.height());
+
+        // under the camera: the time and date, replaced by the co-pilot's words while it has something to say
+        clockD = text("--:--", 10.5f, INK, true);
+        clockD.setIncludeFontPadding(false);
+        clockD.setGravity(Gravity.CENTER_HORIZONTAL);
+        place(dash, clockD, hole.left, u * 40.5f, hole.width(), -1);
+        dateD = text("", 3.1f, INK_DIM, false);
+        dateD.setGravity(Gravity.CENTER_HORIZONTAL);
+        place(dash, dateD, hole.left, u * 53.5f, hole.width(), -1);
+        noteD = text("", 2.8f, INK, false);
+        noteD.setMaxLines(5);
         noteD.setEllipsize(TextUtils.TruncateAt.END);
-        noteD.setLineSpacing(0, 1.12f);
-        GradientDrawable bubble = round(0xEB0A0F16, u * 2.5f);
+        noteD.setLineSpacing(0, 1.1f);
+        GradientDrawable bubble = round(0xF20A0F16, u * 2.5f);
         bubble.setStroke(2, (t[0] & 0x00FFFFFF) | 0x99000000);
         noteD.setBackground(bubble);
-        noteD.setPadding(unit * 3, unit * 2, unit * 3, unit * 2);
+        noteD.setPadding(unit * 2, unit, unit * 2, unit);
         noteD.setVisibility(View.GONE);
         noteD.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { note(null); } });
-        FrameLayout.LayoutParams noteAt = new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        noteAt.setMargins(unit * 2, 0, unit * 2, unit * 2);
-        window.addView(noteD, noteAt);
-        place(dash, window, hole.left, hole.top, hole.width(), hole.height());
+        place(dash, noteD, hole.left, u * 39.5f, hole.width(), u * 22);
 
         // music from the phone
         float top = u * 64, tall = H - top - u * 3;
@@ -392,7 +388,12 @@ public class OverlayService extends Service {
         settings.setClickable(true);
         themeKey = option(settings, new Runnable() { @Override public void run() { prefs.edit().putInt("theme", (prefs.getInt("theme", 0) + 1) % THEMES.length).apply(); ui.post(new Runnable() { @Override public void run() { restyle(); } }); } });
         voiceKey = option(settings, new Runnable() { @Override public void run() { Assistant.sessionFemale = !Assistant.femaleVoice(OverlayService.this); prefs.edit().putBoolean("aiFemale", Assistant.sessionFemale).apply(); } });
-        toneKey = option(settings, new Runnable() { @Override public void run() { flip("tone", true); } });
+        warnKey = option(settings, new Runnable() { @Override public void run() {
+            int i = 0;
+            for (int n = 0; n < LIMITS.length; n++) if (LIMITS[n] == limit) i = n;
+            setLimitNow(LIMITS[(i + 1) % LIMITS.length]);
+            manualWay = roadWay;             // keep the hand-set value until the road changes
+        } });
         roadKey = option(settings, new Runnable() { @Override public void run() { flip("roads", true); if (!prefs.getBoolean("roads", true)) { roadName = ""; gauge.setRoad(""); } lookedUpAt = null; } });
         briefKey = option(settings, new Runnable() { @Override public void run() { flip("briefing", false); } });
         bootKey = option(settings, new Runnable() { @Override public void run() { flip("autostart", false); } });
@@ -442,12 +443,8 @@ public class OverlayService extends Service {
         row.setPadding(unit * 3, unit, unit * 2, unit);
         speedC = text("--", 12, INK, true);
         speedC.setIncludeFontPadding(false);
-        speedC.setMinWidth(unit * 17);
+        speedC.setMinWidth(unit * 19);
         row.addView(speedC);
-        limitC = sign(3.8f);
-        LinearLayout.LayoutParams signAt = new LinearLayout.LayoutParams(unit * 11, unit * 11);
-        signAt.rightMargin = unit * 2;
-        row.addView(limitC, signAt);
         orbC = new OrbView(this, theme());
         orbC.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Assistant.get().tap(); } });
         LinearLayout.LayoutParams aiAt = new LinearLayout.LayoutParams(unit * 13, unit * 13);
@@ -509,29 +506,10 @@ public class OverlayService extends Service {
         return t;
     }
 
-    /** The round speed-limit sign; tap to step through the usual limits. */
-    private TextView sign(float sizeUnits) {
-        TextView t = text(String.valueOf(limit), sizeUnits, 0xFF14181A, true);
-        t.setGravity(Gravity.CENTER);
-        GradientDrawable d = new GradientDrawable();
-        d.setShape(GradientDrawable.OVAL);
-        d.setColor(0xFFF4F6F6);
-        d.setStroke(Math.round(unit * sizeUnits * 0.24f), SIGN_RED);
-        t.setBackground(d);
-        t.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
-            int i = 0;
-            for (int n = 0; n < LIMITS.length; n++) if (LIMITS[n] == limit) i = n;
-            setLimitNow(LIMITS[(i + 1) % LIMITS.length]);
-            manualWay = roadWay;             // keep the hand-set value until the road changes
-        } });
-        return t;
-    }
-
     private void setLimitNow(int kmh) {
         limit = kmh;
-        limitD.setText(String.valueOf(kmh));
-        limitC.setText(String.valueOf(kmh));
         gauge.setLimit(kmh);
+        if (warnKey != null) labels();
         prefs.edit().putInt("limit", kmh).apply();
     }
 
@@ -573,19 +551,20 @@ public class OverlayService extends Service {
     private void labels() {
         themeKey.setText("ธีมสี:  " + THEME_NAMES[Math.abs(prefs.getInt("theme", 0)) % THEMES.length] + "  (แตะเพื่อเปลี่ยน)");
         voiceKey.setText("เสียง AI:  " + (Assistant.femaleVoice(this) ? "ผู้หญิง" : "ผู้ชาย") + "  (แตะเพื่อเปลี่ยน)");
-        toneKey.setText("เสียงเตือนเมื่อเร็วเกินป้าย:  " + (prefs.getBoolean("tone", true) ? "เปิด" : "ปิด"));
+        warnKey.setText("เตือนเมื่อเร็วเกิน:  " + (limit > 0 ? limit + " กม./ชม." : "ปิด") + "  (แตะเพื่อเปลี่ยน)");
         roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
         briefKey.setText("AI รายงานเส้นทางเอง (ใช้โควตา):  " + (prefs.getBoolean("briefing", false) ? "เปิด" : "ปิด"));
         bootKey.setText("เปิดเองเมื่อเปิดจอ:  " + (prefs.getBoolean("autostart", false) ? "เปิด" : "ปิด"));
         pathKey.setText("ปรับแถบเส้นทางบนภาพกล้อง  \u25B6");
     }
 
-    /** The co-pilot's words: across the foot of the camera window on the dashboard, under the strip in camera mode. */
+    /** The co-pilot's words: in place of the clock on the dashboard, under the strip in camera mode. */
     private void note(String line) {
         boolean some = line != null && !line.isEmpty();
         noteD.setText(some ? line : "");
         noteD.setVisibility(some ? View.VISIBLE : View.GONE);
-        hintD.setVisibility(some ? View.GONE : View.VISIBLE);
+        clockD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
+        dateD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         noteC.setText(some ? line : "");
         noteC.setVisibility(some ? View.VISIBLE : View.GONE);
     }
@@ -616,7 +595,7 @@ public class OverlayService extends Service {
             CharSequence road = roadName;
             if (road.length() > 0) s.append("Road (from OpenStreetMap): ").append(road).append('\n');
             if (!heading.isEmpty()) s.append("Heading: ").append(heading).append('\n');
-            s.append("Speed: ").append(fresh ? Math.round(speedKmh) + " km/h" : "unknown").append("; limit sign on the display: ").append(limit).append(" km/h\n");
+            s.append("Speed: ").append(fresh ? Math.round(speedKmh) + " km/h" : "unknown").append("; over-speed warning: ").append(limit > 0 ? "set at " + limit + " km/h" : "off").append('\n');
             s.append(String.format(Locale.US, "This trip so far: %.1f km in %d minutes of driving, top speed %d km/h\n", tripMetres / 1000.0, movingMillis / 60000, Math.round(maxKmh)));
             NowPlaying music = NowPlaying.get();
             if (music.title != null) s.append("Music from the phone: ").append(music.title).append(music.artist == null ? "" : " by " + music.artist).append(Boolean.TRUE.equals(music.playing) ? " (playing)" : " (paused)").append('\n');
@@ -669,15 +648,20 @@ public class OverlayService extends Service {
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             boolean fresh = speedKmh >= 0 && System.currentTimeMillis() - lastFix < 5000;
-            boolean over = fresh && speedKmh > limit + 0.5f;
+            boolean over = fresh && limit > 0 && speedKmh > limit + 0.5f;
             String shown = fresh ? String.valueOf(Math.round(speedKmh)) : "--";
             gauge.setSpeed(fresh ? speedKmh : -1);
             if (!shown.contentEquals(speedC.getText())) speedC.setText(shown);
             speedC.setTextColor(over ? SIGN_RED : INK);
-            if (over && speedKmh > limit + 3 && prefs.getBoolean("tone", true) && SystemClock.elapsedRealtime() - lastTone > 4000) beep();
+            if (over && speedKmh > limit + 3 && SystemClock.elapsedRealtime() - lastTone > 4000) beep();
             Calendar clock = Calendar.getInstance();
             String time = String.format(Locale.US, "%02d:%02d", clock.get(Calendar.HOUR_OF_DAY), clock.get(Calendar.MINUTE));
-            if (!time.contentEquals(clockD.getText())) clockD.setText(time);
+            if (!time.contentEquals(clockD.getText())) {
+                clockD.setText(time);
+                String[] days = {"อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"};
+                String[] months = {"ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."};
+                dateD.setText("วัน" + days[clock.get(Calendar.DAY_OF_WEEK) - 1] + "ที่ " + clock.get(Calendar.DAY_OF_MONTH) + " " + months[clock.get(Calendar.MONTH)]);
+            }
 
             int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);     // dim after dark so the display does not glare
             float dim = hour >= 19 || hour < 6 ? 0.8f : 1f;
@@ -734,7 +718,7 @@ public class OverlayService extends Service {
                 roadWay = r.wayId;
                 roadName = r.name == null ? "" : r.name;
                 gauge.setRoad(roadName);
-                if (r.limit > 0 && manualWay != r.wayId) setLimitNow(r.limit);      // posted limit known and not overridden by hand on this road
+                if (limit > 0 && r.limit > 0 && manualWay != r.wayId) setLimitNow(r.limit);      // posted limit known and not overridden by hand on this road
             }
         });
     }

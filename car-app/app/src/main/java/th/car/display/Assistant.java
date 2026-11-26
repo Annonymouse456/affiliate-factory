@@ -303,7 +303,7 @@ final class Assistant {
             int kmh = input.optInt("kmh", -1);
             if (kmh < 20 || kmh > 130) return "Not set: the limit must be between 20 and 130 km/h.";
             c.setLimit(kmh);
-            return "The sign now shows " + kmh + " km/h.";
+            return "The over-speed warning is now set at " + kmh + " km/h.";
         }
         if ("set_path_overlay".equals(name)) {
             c.setPath(input.optBoolean("visible", true));
