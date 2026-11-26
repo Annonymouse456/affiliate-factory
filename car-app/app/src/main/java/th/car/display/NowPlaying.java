@@ -276,6 +276,19 @@ public class NowPlaying {
     // ------------------------------------------------------------------ controls
 
     /** Play/pause, next or previous: through the followed session when there is one, else as a media key. */
+    /** Start the phone's music again. Unlike the play/pause key, this never pauses music that is already playing. */
+    void resume() {
+        try {
+            if (controller != null) { controller.getTransportControls().play(); return; }
+        } catch (Throwable e) { note("สั่งเล่นต่อไม่ได้: " + e); }
+        try {
+            AudioManager audio = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
+            long now = SystemClock.uptimeMillis();
+            audio.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+            audio.dispatchMediaKeyEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY, 0));
+        } catch (Throwable e) { note("ส่งปุ่มเล่นต่อไม่ได้: " + e); }
+    }
+
     void press(int keyCode) {
         try {
             if (controller != null) {

@@ -30,7 +30,9 @@
     clear: function () { try { closeNav(); } catch (e) { } },
     go: function (q) {
       var c = map.getCenter();
-      fetch('https://photon.komoot.io/api/?q=' + encodeURIComponent(q) + '&limit=1&lang=default&lat=' + c.lat + '&lon=' + c.lng)
+      var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(q);            // "latitude,longitude": no search needed
+      (exact ? Promise.resolve({ json: function () { return { features: [{ geometry: { coordinates: [parseFloat(exact[2]), parseFloat(exact[1])] }, properties: { name: 'จุดหมายที่เลือก' } }] }; } }) :
+      fetch('https://photon.komoot.io/api/?q=' + encodeURIComponent(q) + '&limit=1&lang=default&lat=' + c.lat + '&lon=' + c.lng))
         .then(function (r) { return r.json(); })
         .then(function (j) {
           var f = (j.features || [])[0];
