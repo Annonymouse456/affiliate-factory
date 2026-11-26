@@ -34,11 +34,24 @@
   #keyBox ol { padding-left: 20px; line-height: 1.6; }
   .panel.closed { min-width: 0; padding: 6px; }
   .panel.closed #panelBody { display: none; }
+  #search { position: absolute; z-index: 9; top: 10px; right: 10px; width: min(360px, calc(100% - 125px)); }
+  #search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 9px 12px; border: 0; border-radius: 10px;
+    background: #fff; color: #111; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  #results { list-style: none; margin: 6px 0 0; padding: 0; background: #fff; color: #111; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  #results li { padding: 9px 12px; border-top: 1px solid #eee; cursor: pointer; }
+  #results li:first-child { border-top: 0; }
+  #results small { display: block; color: #666; }
   #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+
+<form id="search">
+  <input id="q" type="search" placeholder="🔍 ค้นหาสถานที่ แล้วกด Enter" autocomplete="off" enterkeyhint="search">
+  <ul id="results"></ul>
+</form>
 
 <div class="panel">
   <button id="collapse" style="margin:0">☰ เมนู</button>
@@ -208,6 +221,38 @@ function refreshTraffic() {
 }
 setInterval(refreshTraffic, CONFIG.refreshSeconds * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
+
+// ---- ค้นหาสถานที่ (Photon / OpenStreetMap, ไม่ต้องใช้ key) ----
+let pin;
+function goTo(lngLat, label) {
+  if (pin) pin.remove();
+  pin = new maplibregl.Marker({ color: '#e5322d' }).setLngLat(lngLat)
+    .setPopup(new maplibregl.Popup({ offset: 30 }).setText(label)).addTo(map);
+  map.flyTo({ center: lngLat, zoom: 16.5, pitch: CONFIG.pitch });
+}
+$('search').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('q').value.trim(), box = $('results');
+  if (!q) { box.replaceChildren(); return; }
+  const li = t => { const el = document.createElement('li'); el.textContent = t; return el; };
+  box.replaceChildren(li('กำลังค้นหา…'));
+  try {
+    const c = map.getCenter();
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${c.lat}&lon=${c.lng}`);
+    if (!r.ok) throw new Error(r.status);
+    const feats = (await r.json()).features || [];
+    if (!feats.length) { box.replaceChildren(li('ไม่พบสถานที่')); return; }
+    box.replaceChildren(...feats.map(f => {
+      const p = f.properties, name = p.name || p.street || q;
+      const el = li(name), sub = document.createElement('small');
+      sub.textContent = [p.street, p.district, p.city, p.state, p.country].filter(x => x && x !== name).join(', ');
+      el.append(sub);
+      el.onclick = () => { box.replaceChildren(); $('q').value = name; $('q').blur(); goTo(f.geometry.coordinates, name); };
+      return el;
+    }));
+  } catch { box.replaceChildren(li('ค้นหาไม่ได้ — ตรวจอินเทอร์เน็ต')); }
+});
+$('q').addEventListener('input', () => { if (!$('q').value) $('results').replaceChildren(); });
 
 // ---- UI ----
 const panel = document.querySelector('.panel');
