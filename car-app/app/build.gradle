@@ -7,8 +7,8 @@ android {
         applicationId 'th.car.display'
         minSdk 21
         targetSdk 33
-        versionCode 11
-        versionName '2.6'
+        versionCode 12
+        versionName '2.7'
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }   // head units are ARM; leaves out emulator-only libraries
     }
     signingConfigs {

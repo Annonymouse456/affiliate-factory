@@ -108,7 +108,7 @@ final class ClaudeClient {
             }
             answer.problem = "ใช้เวลาค้นนานเกินไป ลองถามใหม่";
         } catch (Throwable e) {
-            answer.problem = e instanceof java.io.IOException ? "ต่อเน็ตไม่ได้" : "ผิดพลาด: " + e.getClass().getSimpleName();
+            answer.problem = Http.problem(e);
         }
         return answer;
     }
