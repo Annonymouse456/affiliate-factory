@@ -96,6 +96,37 @@ public class OverlayService extends Service {
     private TextView themeKey, voiceKey;
     private android.widget.SeekBar hueBar;
     private PhoneAsk phoneAsk;
+    // the map panel lives in its own process; see MapService
+    private RectF mapAt;
+    private TextView mapNote;
+    private android.os.Messenger mapOut;
+    private boolean mapBound, mapSeen, mapGaveUp;
+    private int mapDrops;
+    private String mapKeySent;
+    private final java.util.concurrent.LinkedBlockingQueue<String> mapAnswers = new java.util.concurrent.LinkedBlockingQueue<String>();
+    private final android.os.Messenger mapIn = new android.os.Messenger(new Handler(android.os.Looper.getMainLooper()) {
+        @Override public void handleMessage(android.os.Message m) { if (m.what == MapService.RESULT) mapAnswers.offer(String.valueOf(m.getData().getString("json"))); }
+    });
+    private final android.content.ServiceConnection mapLink = new android.content.ServiceConnection() {
+        @Override public void onServiceConnected(android.content.ComponentName name, IBinder binder) {
+            mapOut = new android.os.Messenger(binder);
+            mapSeen = false;
+            mapKeySent = null;
+            syncMap();
+            Location at = lastPlace;
+            if (at != null) sendFix(at);
+        }
+        @Override public void onServiceDisconnected(android.content.ComponentName name) {      // the web engine failed and took the map's process with it
+            mapOut = null;
+            NowPlaying.get().note("แผนที่: ส่วนแสดงเว็บของจอหยุดทำงาน ครั้งที่ " + (++mapDrops));
+            if (mapDrops >= 3) {             // stop trying: leave the space with a plain explanation
+                mapGaveUp = true;
+                try { unbindService(this); } catch (Throwable ignored) { }
+                mapBound = false;
+                if (mapNote != null) mapNote.setText("แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ");
+            }
+        }
+    };
     private CallWatch calls;
     private LinearLayout callCard;
     private TextView callWho, callState, answerKey;
@@ -163,6 +194,7 @@ public class OverlayService extends Service {
         if (code.length() != 4) { code = String.format(Locale.US, "%04d", new java.util.Random().nextInt(10000)); prefs.edit().putString("askCode", code).apply(); }
         phoneAsk = new PhoneAsk(this, code);
         phoneAsk.start();
+        try { mapBound = bindService(new Intent(this, MapService.class), mapLink, Context.BIND_AUTO_CREATE); } catch (Throwable ignored) { }
         buildCallCard();
         calls = new CallWatch(this, new CallWatch.Listener() {
             @Override public void call(final int state, final String number, final String name) { ui.post(new Runnable() { @Override public void run() { showCall(state, number, name); } }); }
@@ -183,6 +215,7 @@ public class OverlayService extends Service {
         Assistant.get().detach(aiListener);
         if (phoneAsk != null) phoneAsk.stop();
         if (calls != null) calls.stop();
+        try { if (mapBound) unbindService(mapLink); } catch (Throwable ignored) { }
         try { if (callShown) windows.removeView(callCard); } catch (Throwable ignored) { }
         NowPlaying.get().removeListener(musicChanged);
         try { if (locations != null) locations.removeUpdates(gps); } catch (Throwable ignored) { }
@@ -239,6 +272,7 @@ public class OverlayService extends Service {
             }
         } catch (Throwable ignored) { }
         showPath();
+        syncMap();
     }
 
     /** The lane band belongs to the full camera picture only. */
@@ -311,26 +345,29 @@ public class OverlayService extends Service {
         final float u = unit, W = screenW, H = screenH;
         final int[] t = theme();
         float column = W * 0.40f;                                   // width of the settings sheet
-        final RectF hole = new RectF(W * 0.635f, u * 4, W - u * 2.5f, u * 37);      // a small camera window, top right
+        float leftW = W * 0.365f, right = leftW + u * 1.5f;         // left: speed, music, co-pilot. right: camera, clock, map
+        final RectF hole = new RectF(right, u * 3, right + u * 39, u * 25);          // a small camera window above the map
+        mapAt = new RectF(right, u * 27, W - u * 2.5f, H - u * 3);
         dash = new Surface(this, hole, u * 3, t);
 
-        gauge = new GaugeView(this, t);                             // the dial, centred in the space left of the camera
+        gauge = new GaugeView(this, t);
         gauge.setLimit(limit);
-        place(dash, gauge, (hole.left - u * 60) / 2f, u * 2, u * 60, u * 60);
+        place(dash, gauge, (leftW - u * 47) / 2f + u, u, u * 47, u * 47);
 
         // tap the camera window for the full picture
         View window = new View(this);
         window.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
         place(dash, window, hole.left, hole.top, hole.width(), hole.height());
 
-        // under the camera: the time and date, replaced by the co-pilot's words while it has something to say
+        // beside the camera: the time and date, replaced by the co-pilot's words while it has something to say
+        float besideL = hole.right + u * 2, besideW = W - u * 2.5f - besideL;
         clockD = text("--:--", 10.5f, INK, true);
         clockD.setIncludeFontPadding(false);
         clockD.setGravity(Gravity.CENTER_HORIZONTAL);
-        place(dash, clockD, hole.left, u * 40.5f, hole.width(), -1);
+        place(dash, clockD, besideL, u * 4.5f, besideW, -1);
         dateD = text("", 3.1f, INK_DIM, false);
         dateD.setGravity(Gravity.CENTER_HORIZONTAL);
-        place(dash, dateD, hole.left, u * 53.5f, hole.width(), -1);
+        place(dash, dateD, besideL, u * 18.5f, besideW, -1);
         noteD = text("", 2.8f, INK, false);
         noteD.setMaxLines(5);
         noteD.setEllipsize(TextUtils.TruncateAt.END);
@@ -341,70 +378,75 @@ public class OverlayService extends Service {
         noteD.setPadding(unit * 2, unit, unit * 2, unit);
         noteD.setVisibility(View.GONE);
         noteD.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { note(null); } });
-        place(dash, noteD, hole.left, u * 39.5f, hole.width(), u * 22);
+        place(dash, noteD, besideL, hole.top, besideW, hole.height());
+
+        // the map's place: the map itself is a separate window laid over this, so these words show only until it arrives
+        mapNote = text(mapGaveUp ? "แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ" : "กำลังเปิดแผนที่…", 3.2f, INK_DIM, false);
+        mapNote.setGravity(Gravity.CENTER);
+        mapNote.setBackground(plate(u * 3));
+        place(dash, mapNote, mapAt.left, mapAt.top, mapAt.width(), mapAt.height());
 
         // music from the phone
-        float top = u * 64, tall = H - top - u * 3;
+        float cardL = u * 2.5f, cardW = leftW - cardL, musicTop = u * 49.5f, musicTall = u * 31.5f;
         LinearLayout music = new LinearLayout(this);
-        music.setGravity(Gravity.CENTER_VERTICAL);
+        music.setOrientation(LinearLayout.VERTICAL);
         music.setBackground(plate(u * 3.5f));
-        music.setPadding(unit * 3, unit * 2, unit * 2, unit * 2);
-        disc = new DiscView(this, t);                              // the cover, turning like a record while the music plays
-        LinearLayout.LayoutParams discAt = new LinearLayout.LayoutParams(unit * 27, unit * 27);
-        discAt.rightMargin = unit * 3;
-        music.addView(disc, discAt);
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
+        music.setPadding(unit * 2, unit * 2, unit * 2, unit);
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
+        disc = new DiscView(this, t);                              // the cover, turning like a record while the music plays
+        LinearLayout.LayoutParams discAt = new LinearLayout.LayoutParams(unit * 13, unit * 13);
+        discAt.rightMargin = unit * 2;
+        head.addView(disc, discAt);
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
-        titleD = text("ยังไม่มีเพลงจากมือถือ", 3.7f, INK, true);
+        titleD = text("ยังไม่มีเพลงจากมือถือ", 3.4f, INK, true);
         titleD.setSingleLine(true);
         titleD.setEllipsize(TextUtils.TruncateAt.MARQUEE);
         titleD.setMarqueeRepeatLimit(-1);
         titleD.setSelected(true);
         words.addView(titleD);
-        artistD = text("ต่อบลูทูธแล้วเปิดเพลงได้เลย", 2.8f, INK_DIM, false);
+        artistD = text("ต่อบลูทูธแล้วเปิดเพลงได้เลย", 2.7f, INK_DIM, false);
         artistD.setSingleLine(true);
         artistD.setEllipsize(TextUtils.TruncateAt.END);
         words.addView(artistD);
         head.addView(words, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         eq = new EqView(this, t);
-        LinearLayout.LayoutParams eqAt = new LinearLayout.LayoutParams(unit * 7, unit * 7);
-        eqAt.leftMargin = unit * 2;
+        LinearLayout.LayoutParams eqAt = new LinearLayout.LayoutParams(unit * 6, unit * 6);
+        eqAt.leftMargin = unit;
         head.addView(eq, eqAt);
-        info.addView(head);
+        music.addView(head);
         LinearLayout keys = new LinearLayout(this);
         keys.setGravity(Gravity.CENTER);
-        info.addView(keys, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        roundKey(keys, IconView.PREVIOUS, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 12, null);
-        playD = roundKey(keys, IconView.PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 15, t);
-        roundKey(keys, IconView.NEXT, KeyEvent.KEYCODE_MEDIA_NEXT, 12, null);
-        music.addView(info, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
-        place(dash, music, u * 3, top, W * 0.60f - u * 3, tall);
+        music.addView(keys, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        roundKey(keys, IconView.PREVIOUS, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 10, null);
+        playD = roundKey(keys, IconView.PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 12, t);
+        roundKey(keys, IconView.NEXT, KeyEvent.KEYCODE_MEDIA_NEXT, 10, null);
+        place(dash, music, cardL, musicTop, cardW, musicTall);
 
-        // the co-pilot
+        // bottom row: the co-pilot, then the menu and full-camera keys
+        float top = u * 83, tall = H - top - u * 3, keyW = u * 12.5f, gap = u * 1.5f;
         LinearLayout ai = new LinearLayout(this);
-        ai.setOrientation(LinearLayout.VERTICAL);
-        ai.setGravity(Gravity.CENTER);
+        ai.setGravity(Gravity.CENTER_VERTICAL);
+        ai.setPadding(unit, 0, unit, 0);
         ai.setBackground(plate(u * 3.5f));
         orbD = new OrbView(this, t);
-        ai.addView(orbD, new LinearLayout.LayoutParams(unit * 23, unit * 23));
+        LinearLayout.LayoutParams orbAt = new LinearLayout.LayoutParams(unit * 12, unit * 12);
+        orbAt.rightMargin = unit;
+        ai.addView(orbD, orbAt);
         aiLabel = text("ถาม AI", 3f, INK, false);
-        aiLabel.setGravity(Gravity.CENTER);
-        ai.addView(aiLabel);
+        aiLabel.setMaxLines(2);
+        aiLabel.setEllipsize(TextUtils.TruncateAt.END);
+        ai.addView(aiLabel, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         ai.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Assistant.get().tap(); } });
-        place(dash, ai, W * 0.615f, top, W * 0.27f, tall);
+        place(dash, ai, cardL, top, cardW - (keyW + gap) * 2, tall);
 
-        // menu and full-camera keys
-        float side = W * 0.90f, sideW = W - side - u * 2.5f, half = (tall - u * 2) / 2;
         IconView menu = new IconView(this, IconView.MENU, INK, 0x24FFFFFF, false);
-        menu.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); } });
-        place(dash, menu, side, top, sideW, half);
+        menu.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); syncMap(); } });
+        place(dash, menu, cardL + cardW - keyW * 2 - gap, top, keyW, tall);
         IconView full = new IconView(this, IconView.EXPAND, INK, 0x24FFFFFF, false);
         full.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
-        place(dash, full, side, top + half + u * 2, sideW, half);
+        place(dash, full, cardL + cardW - keyW, top, keyW, tall);
 
         // settings, over the left column when open
         settings = new LinearLayout(this);
@@ -538,6 +580,67 @@ public class OverlayService extends Service {
 
     private Runnable nudge(final float centre, final float width, final float tilt, final float length) {
         return new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", true).apply(); showPath(); path.nudge(centre, width, tilt, length); } };
+    }
+
+    // ---------------------------------------------------------------- the map panel
+
+    private void toMap(int what, Bundle data) {
+        android.os.Messenger out = mapOut;
+        if (out == null) return;
+        try {
+            android.os.Message m = android.os.Message.obtain(null, what);
+            m.setData(data);
+            m.replyTo = mapIn;
+            out.send(m);
+        } catch (Throwable ignored) { }
+    }
+
+    static String mapKey(Context c) { String k = App.prefs(c).getString("tomtomKey", "").trim(); return k.isEmpty() ? sessionMapKey : k; }
+    static volatile String sessionMapKey = "";
+
+    /** Show the map over its space on the dashboard, and take it away whenever something else needs that part of the screen. */
+    private void syncMap() {
+        if (mapOut == null || mapAt == null) return;
+        boolean want = dashShown && !cameraMode && !hidden && settings.getVisibility() != View.VISIBLE;
+        String key = mapKey(this) + "|" + theme()[0];
+        if (!key.equals(mapKeySent)) {             // traffic key or colours changed
+            mapKeySent = key;
+            Bundle b = new Bundle();
+            b.putString("key", mapKey(this));
+            b.putString("colour", String.format(Locale.US, "#%06X", theme()[0] & 0xFFFFFF));
+            toMap(MapService.CONFIG, b);
+        }
+        if (want == mapSeen) return;
+        mapSeen = want;
+        Bundle b = new Bundle();
+        b.putInt("x", Math.round(mapAt.left));
+        b.putInt("y", Math.round(mapAt.top));
+        b.putInt("w", Math.round(mapAt.width()));
+        b.putInt("h", Math.round(mapAt.height()));
+        b.putFloat("radius", unit * 3f);
+        b.putBoolean("visible", want);
+        toMap(MapService.PLACE, b);
+    }
+
+    private void sendFix(Location at) {
+        if (mapOut == null) return;
+        Bundle b = new Bundle();
+        b.putDouble("lat", at.getLatitude());
+        b.putDouble("lon", at.getLongitude());
+        b.putFloat("bearing", at.hasBearing() ? at.getBearing() : -1);
+        b.putFloat("kmh", speedKmh);
+        toMap(MapService.FIX, b);
+    }
+
+    /** Ask the map to find a place and draw the way there. Waits for its answer; null when the map is not running. Not for the main thread. */
+    private String guideOnMap(String destination) {
+        if (mapOut == null || mapGaveUp) return null;
+        mapAnswers.clear();
+        ui.post(new Runnable() { @Override public void run() { if (cameraMode) setCameraMode(false); settings.setVisibility(View.GONE); syncMap(); } });
+        Bundle b = new Bundle();
+        b.putString("query", destination);
+        toMap(MapService.GO, b);
+        try { return mapAnswers.poll(30, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException e) { return null; }
     }
 
     // ---------------------------------------------------------------- phone calls
@@ -731,8 +834,9 @@ public class OverlayService extends Service {
         @Override public void setPath(final boolean visible) {
             ui.post(new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", visible).apply(); showPath(); } });
         }
+        @Override public String guide(String destination) { return guideOnMap(destination); }
         @Override public void hideOverlay(final boolean hide) {       // so a screen frame shows the whole camera picture
-            ui.post(new Runnable() { @Override public void run() { hidden = hide; dash.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); strip.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); showPath(); } });
+            ui.post(new Runnable() { @Override public void run() { hidden = hide; dash.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); strip.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); showPath(); syncMap(); } });
         }
     };
 
@@ -769,6 +873,7 @@ public class OverlayService extends Service {
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
+            syncMap();
             boolean fresh = speedKmh >= 0 && System.currentTimeMillis() - lastFix < 5000;
             boolean over = fresh && limit > 0 && speedKmh > limit + 0.5f;
             String shown = fresh ? String.valueOf(Math.round(speedKmh)) : "--";
@@ -817,6 +922,7 @@ public class OverlayService extends Service {
                 movingMillis += clock - lastFixClock;
             }
             if (at.hasBearing() && speedKmh > 8) heading = COMPASS[Math.round(at.getBearing() / 45f) % 8];
+            sendFix(at);
             lookUpRoad(at);
             maybeBrief();
             lastPlace = at;

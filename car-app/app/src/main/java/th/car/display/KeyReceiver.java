@@ -87,21 +87,22 @@ final class KeyReceiver {
             byte[] body = new byte[length];
             int got = 0;
             while (got < length) { int n = in.read(body, got, length - got); if (n < 0) break; got += n; }
-            String pin = "", claude = "", openai = "";
+            String pin = "", claude = "", openai = "", tomtom = "";
             for (String pair : new String(body, 0, got, "UTF-8").split("&")) {
                 int eq = pair.indexOf('=');
                 if (eq < 0) continue;
                 String value = URLDecoder.decode(pair.substring(eq + 1), "UTF-8").replaceAll("\\s", "");
                 String name = pair.substring(0, eq);
-                if (name.equals("pin")) pin = value; else if (name.equals("claude")) claude = value; else if (name.equals("openai")) openai = value;
+                if (name.equals("pin")) pin = value; else if (name.equals("claude")) claude = value; else if (name.equals("openai")) openai = value; else if (name.equals("tomtom")) tomtom = value;
             }
             if (!code.equals(pin)) message = "รหัส 4 หลักไม่ตรงกับที่แสดงบนจอรถ";
-            else if (claude.length() < 20 && openai.length() < 20) message = "ยังไม่ได้วางคีย์ หรือคีย์สั้นเกินไป";
+            else if (claude.length() < 20 && openai.length() < 20 && tomtom.length() < 20) message = "ยังไม่ได้วางคีย์ หรือคีย์สั้นเกินไป";
             else {
                 android.content.SharedPreferences.Editor e = App.prefs(c).edit();
                 String summary = "";
                 if (claude.length() >= 20) { Assistant.sessionClaudeKey = claude; e.putString("claudeKey", claude); summary += "คีย์ Claude (ลงท้าย " + claude.substring(claude.length() - 4) + ") "; }
-                if (openai.length() >= 20) { Assistant.sessionOpenAiKey = openai; e.putString("openaiKey", openai); summary += "คีย์ OpenAI (ลงท้าย " + openai.substring(openai.length() - 4) + ")"; }
+                if (openai.length() >= 20) { Assistant.sessionOpenAiKey = openai; e.putString("openaiKey", openai); summary += "คีย์ OpenAI (ลงท้าย " + openai.substring(openai.length() - 4) + ") "; }
+                if (tomtom.length() >= 20) { OverlayService.sessionMapKey = tomtom; e.putString("tomtomKey", tomtom); summary += "คีย์ TomTom (ลงท้าย " + tomtom.substring(tomtom.length() - 4) + ")"; }
                 if (e.commit()) {            // written to storage before we say so
                     saved = true;
                     message = "บันทึกลงจอรถแล้ว: " + summary.trim() + " ปิดหน้านี้ได้เลย";
@@ -127,6 +128,7 @@ final class KeyReceiver {
                 + (saved ? "" : "<form method=post autocomplete=off><label>รหัส 4 หลักที่แสดงบนจอรถ</label><input name=pin inputmode=numeric maxlength=4 required>"
                 + "<label>คีย์ Claude (เว้นว่างได้ถ้าไม่เปลี่ยน)</label><input name=claude autocapitalize=off autocorrect=off spellcheck=false placeholder='sk-ant-...'>"
                 + "<label>คีย์ OpenAI (เว้นว่างได้ถ้าไม่เปลี่ยน)</label><input name=openai autocapitalize=off autocorrect=off spellcheck=false placeholder='sk-...'>"
+                + "<label>คีย์ TomTom สำหรับจราจรบนแผนที่ (เว้นว่างได้)</label><input name=tomtom autocapitalize=off autocorrect=off spellcheck=false>"
                 + "<button>ส่งเข้าจอรถ</button></form>")
                 + "</html>";
         byte[] out = page.getBytes("UTF-8");
