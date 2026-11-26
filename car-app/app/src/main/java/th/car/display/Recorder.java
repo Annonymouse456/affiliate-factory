@@ -54,7 +54,26 @@ final class Recorder {
             try { mic.stop(); } catch (Throwable ignored) { }
             mic.release();
         }
-        return wav(pcm.toByteArray());
+        return wav(louder(pcm.toByteArray()));
+    }
+
+    /**
+     * Bring a quiet recording up to a healthy level. Head-unit microphones are often faint; speech
+     * recognition does much better when the loudest syllable sits near full scale. Gain is capped
+     * so that a recording of nothing but hiss is not blown up into noise.
+     */
+    private static byte[] louder(byte[] pcm) {
+        int peak = 1;
+        for (int i = 0; i + 1 < pcm.length; i += 2) peak = Math.max(peak, Math.abs((short) ((pcm[i] & 0xff) | (pcm[i + 1] << 8))));
+        float gain = Math.min(10f, 29000f / peak);
+        if (gain <= 1.15f) return pcm;
+        for (int i = 0; i + 1 < pcm.length; i += 2) {
+            int v = Math.round(((short) ((pcm[i] & 0xff) | (pcm[i + 1] << 8))) * gain);
+            v = Math.max(-32768, Math.min(32767, v));
+            pcm[i] = (byte) (v & 0xff);
+            pcm[i + 1] = (byte) ((v >> 8) & 0xff);
+        }
+        return pcm;
     }
 
     private static byte[] wav(byte[] pcm) {

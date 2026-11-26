@@ -95,6 +95,8 @@ public class OverlayService extends Service {
     private DiscView disc;
     private TextView themeKey, voiceKey;
     private android.widget.SeekBar hueBar;
+    private PhoneAsk phoneAsk;
+    private TextView phoneKey;
     private LinearLayout settings;
     private TextView warnKey, bootKey, roadKey, briefKey, pathKey;
     // camera layout
@@ -152,6 +154,10 @@ public class OverlayService extends Service {
         }
         startGps();
         Assistant.get().attach(this, car, aiListener);
+        String code = prefs.getString("askCode", "");
+        if (code.length() != 4) { code = String.format(Locale.US, "%04d", new java.util.Random().nextInt(10000)); prefs.edit().putString("askCode", code).apply(); }
+        phoneAsk = new PhoneAsk(this, code);
+        phoneAsk.start();
         NowPlaying.get().addListener(musicChanged);
         NowPlaying.get().start(this);
         musicChanged.run();
@@ -165,6 +171,7 @@ public class OverlayService extends Service {
         running = false;
         ui.removeCallbacksAndMessages(null);
         Assistant.get().detach(aiListener);
+        if (phoneAsk != null) phoneAsk.stop();
         NowPlaying.get().removeListener(musicChanged);
         try { if (locations != null) locations.removeUpdates(gps); } catch (Throwable ignored) { }
         try { if (dashShown) windows.removeView(dash); } catch (Throwable ignored) { }
@@ -424,6 +431,12 @@ public class OverlayService extends Service {
         roadKey = option(settings, new Runnable() { @Override public void run() { flip("roads", true); if (!prefs.getBoolean("roads", true)) { roadName = ""; gauge.setRoad(""); } lookedUpAt = null; } });
         briefKey = option(settings, new Runnable() { @Override public void run() { flip("briefing", false); } });
         bootKey = option(settings, new Runnable() { @Override public void run() { flip("autostart", false); } });
+        phoneKey = option(settings, new Runnable() { @Override public void run() {
+            String address = KeyReceiver.localAddress();
+            note(address == null ? "จอรถยังไม่ได้ต่อ Wi-Fi ต่อฮอตสปอตของมือถือก่อน"
+                    : "ถามจากมือถือ: เปิด Safari แล้วพิมพ์  " + address + ":" + PhoneAsk.PORT + "  รหัส " + prefs.getString("askCode", ""));
+            settings.setVisibility(View.GONE);
+        } });
         pathKey = option(settings, new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); prefs.edit().putBoolean("pathOn", true).apply(); setCameraMode(true); nudges.setVisibility(View.VISIBLE); } });
         LinearLayout last = new LinearLayout(this);
         optionIn(last, "ปิดจอซ้อน", new Runnable() { @Override public void run() { stopSelf(); } });
@@ -583,6 +596,7 @@ public class OverlayService extends Service {
         roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
         briefKey.setText("AI รายงานเส้นทางเอง (ใช้โควตา):  " + (prefs.getBoolean("briefing", false) ? "เปิด" : "ปิด"));
         bootKey.setText("เปิดเองเมื่อเปิดจอ:  " + (prefs.getBoolean("autostart", false) ? "เปิด" : "ปิด"));
+        phoneKey.setText("ถามจากมือถือ (ใช้ไมค์มือถือ)  \u25B6");
         pathKey.setText("ปรับแถบเส้นทางบนภาพกล้อง  \u25B6");
     }
 

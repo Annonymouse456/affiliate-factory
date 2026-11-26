@@ -107,6 +107,23 @@ final class Assistant {
         worker.execute(new Runnable() { @Override public void run() { listenAndAnswer(); } });
     }
 
+    private volatile java.util.concurrent.CountDownLatch waiting;
+    private volatile String waitedAnswer;
+
+    /** Ask a typed question, speak the answer in the car, and also return it. For questions sent from the phone. Blocking. */
+    String askAndWait(String question, long timeoutMs) {
+        if (app == null) return "จอขับขี่ยังไม่ได้เปิดจอซ้อน";
+        if (state != State.IDLE) return "ผู้ช่วยกำลังตอบคำถามอื่นอยู่ ลองใหม่อีกครั้ง";
+        if (claudeKey(app).isEmpty()) return "ยังไม่ได้ใส่คีย์ Claude บนจอรถ";
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        waitedAnswer = null;
+        waiting = latch;
+        askText(question, true);
+        try { latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS); } catch (InterruptedException ignored) { }
+        waiting = null;
+        return waitedAnswer == null ? "รอคำตอบนานเกินไป" : waitedAnswer;
+    }
+
     /** A question that is already text: the typed test, and the automatic road briefing. */
     void askText(final String question, final boolean aloud) {
         if (app == null || state != State.IDLE) return;
@@ -150,6 +167,8 @@ final class Assistant {
                 @Override public Object run(String name, JSONObject input) throws Exception { return tool(name, input, c); }
             });
             count(a);
+            java.util.concurrent.CountDownLatch latch = waiting;
+            if (latch != null) { waitedAnswer = a.problem != null ? a.problem : a.text; latch.countDown(); }
             if (a.problem == null && !briefing) remember(question, a.text);
             if (a.problem != null) { audio.abandonAudioFocus(null); show(State.IDLE, a.problem); return; }
             if (!aloud) { audio.abandonAudioFocus(null); show(State.IDLE, a.text); return; }
