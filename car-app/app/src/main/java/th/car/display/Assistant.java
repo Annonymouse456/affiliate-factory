@@ -42,6 +42,7 @@ final class Assistant {
         Location place();                  // null when there is no GPS fix
         void setLimit(int kmh);
         void setPath(boolean visible);
+        String guide(String destination);  // draw the way on the built-in map; the map's JSON answer, or null when there is no map
         void hideOverlay(boolean hidden);  // so a screen frame shows the camera, not our card
     }
 
@@ -264,6 +265,16 @@ final class Assistant {
 
     private String navigate(String destination) {
         if (destination.isEmpty()) return "No destination was given.";
+        try {                              // first choice: the map built into this display
+            String answer = car == null ? null : car.guide(destination);
+            if (answer != null) {
+                org.json.JSONObject j = new org.json.JSONObject(answer);
+                if (j.optBoolean("ok")) return "The route is now drawn on the display's own map, with the next turn shown at the top of the map. Destination found: " + j.optString("name")
+                        + ". Distance " + j.optDouble("km") + " km, about " + j.optInt("minutes") + " minutes" + (j.optBoolean("traffic") ? " with current traffic" : " without traffic data")
+                        + ". The map shows turns but does not speak them. If the place found is not what the driver meant, say so and try a more exact name.";
+                if (j.optString("why").contains("gps")) return "There is no GPS position yet, so a route cannot be planned. Ask the driver to wait for the GPS signal.";
+            }
+        } catch (Throwable ignored) { }
         try {
             Intent go;
             if (installed("com.google.android.apps.maps")) {

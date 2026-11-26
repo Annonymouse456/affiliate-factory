@@ -57,6 +57,8 @@
             </intent-filter>
             <meta-data android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" android:resource="@xml/usb_cameras" />
         </activity>
+        <!-- the map panel, apart from the rest so a failing web engine cannot take the display down -->
+        <service android:name=".MapService" android:exported="false" android:process=":map" />
         <service android:name=".OverlayService" android:exported="false" android:foregroundServiceType="location" />
         <!-- notification access is what allows reading other apps' "now playing" details -->
         <service android:name=".MusicListener" android:exported="true" android:label="@string/app_name" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">

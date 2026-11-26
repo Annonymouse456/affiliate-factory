@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>แผนที่ในจอขับขี่</title>
+<link rel="stylesheet" href="leaflet.css">
+<script src="leaflet.js"></script>
+<!--
+  The map panel of the car display. A light, flat cousin of the 3D map in /map/: the same sources
+  (TomTom tiles, traffic, search and routing when a key is present; OSRM and Photon otherwise), drawn
+  with picture tiles instead of 3D so a small head unit can keep up. Written for old browsers on purpose.
+  The app feeds it the car's position; nothing here asks the browser for location.
+-->
+<style>
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #0b0f17; color: #eef3f7;
+    font-family: "Noto Sans Thai", "Roboto", sans-serif; -webkit-user-select: none; user-select: none; }
+  #view { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
+  #spin { position: absolute; left: 50%; top: 50%; transition: transform .6s linear; -webkit-transition: -webkit-transform .6s linear; }
+  #map { width: 100%; height: 100%; background: #0b0f17; }
+  .leaflet-container { background: #0b0f17; }
+  .car { width: 44px; height: 44px; margin: -22px 0 0 -22px; }
+  .car i { display: block; width: 44px; height: 44px; transition: transform .5s linear; -webkit-transition: -webkit-transform .5s linear; }
+  .pin { width: 26px; height: 26px; margin: -24px 0 0 -13px; }
+
+  .keys { position: absolute; right: 8px; bottom: 8px; width: 52px; }
+  .key { display: block; width: 52px; height: 52px; margin-top: 8px; border-radius: 26px; border: 1px solid rgba(255,255,255,.22);
+    background: rgba(12,17,26,.86); color: #eef3f7; font-size: 26px; line-height: 50px; text-align: center; box-sizing: border-box; }
+  .key:active { background: rgba(60,75,100,.9); }
+  .key svg { width: 26px; height: 26px; margin-top: 12px; }
+  #centre { display: none; }
+
+  #turn { position: absolute; left: 8px; top: 8px; right: 68px; display: none; padding: 8px 12px 8px 60px; min-height: 44px;
+    border-radius: 14px; background: rgba(12,17,26,.92); border: 1px solid rgba(255,255,255,.2); box-sizing: border-box; }
+  #turn svg { position: absolute; left: 10px; top: 8px; width: 42px; height: 42px; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  #turnFar { font-size: 22px; font-weight: bold; line-height: 24px; }
+  #turnText { font-size: 16px; line-height: 20px; color: #c3ccd6; max-height: 40px; overflow: hidden; }
+
+  #trip { position: absolute; left: 8px; bottom: 8px; display: none; padding: 7px 44px 7px 12px; border-radius: 14px;
+    background: rgba(12,17,26,.92); border: 1px solid rgba(255,255,255,.2); max-width: 62%; box-sizing: border-box; }
+  #tripMain { font-size: 20px; font-weight: bold; line-height: 24px; white-space: nowrap; }
+  #tripName { font-size: 14px; line-height: 18px; color: #c3ccd6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #stop { position: absolute; right: 4px; top: 50%; margin-top: -18px; width: 36px; height: 36px; line-height: 36px; text-align: center; font-size: 20px; color: #ff8d8d; }
+
+  #say { position: absolute; left: 8px; top: 8px; display: none; padding: 5px 11px; border-radius: 12px; font-size: 15px;
+    background: rgba(12,17,26,.88); border: 1px solid rgba(255,255,255,.16); color: #c3ccd6; }
+  #credit { position: absolute; right: 66px; bottom: 2px; font-size: 9px; color: rgba(255,255,255,.45); }
+</style>
+</head>
+<body>
+<div id="view"><div id="spin"><div id="map"></div></div></div>
+
+<div id="say"></div>
+<div id="turn"><span id="turnIcon"></span><div id="turnFar"></div><div id="turnText"></div></div>
+<div id="trip"><div id="tripMain"></div><div id="tripName"></div><div id="stop">✕</div></div>
+
+<div class="keys">
+  <div class="key" id="centre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
+  <div class="key" id="mode"></div>
+  <div class="key" id="in">+</div>
+  <div class="key" id="out">−</div>
+</div>
+<div id="credit"></div>
+
+<script>
+(function () {
+  'use strict';
+  var T = 'https://api.tomtom.com';
+  var $ = function (id) { return document.getElementById(id); };
+  var host = window.Host || { result: function () {}, save: function () {} };      // the app; absent when opened in a plain browser
+
+  var key = '', accent = '#35c8ff';
+  var headingUp = true, follow = true, autoZoom = true;
+  var here = null, bearing = 0, kmh = 0, turned = 0;                 // turned: the map's rotation, kept continuous so it never spins the long way
+  var route = null, at = 0, along = 0, off = 0, lastReroute = 0, stamp = Date.now();
+  var freeTimer = null, sayTimer = null;
+
+  var map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, fadeAnimation: false, zoomSnap: 1,
+    inertia: false, doubleClickZoom: false, dragging: false }).setView([13.7563, 100.5018], 12);
+  var base = L.tileLayer('', { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true });
+  var flow = L.tileLayer('', { maxZoom: 19, opacity: 0.8, zIndex: 5, keepBuffer: 0, updateWhenIdle: true });
+  var line = L.polyline([], { color: accent, weight: 8, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false });
+  var done = L.polyline([], { color: '#56606e', weight: 8, opacity: 0.9, interactive: false });
+  var pin = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null,
+    html: '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="#ff4d5e" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>' }) });
+  var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
+
+  var fails = 0;
+  base.on('tileerror', function () { if (++fails === 6) say('โหลดแผนที่ไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 0); });
+  base.on('tileload', function () { if (fails >= 6) say('', 0); fails = 0; });
+
+  // ---------------------------------------------------------------- drawing
+
+  function size() {            // the map is a square as wide as the panel's diagonal, so turning it never shows an empty corner
+    var w = window.innerWidth, h = window.innerHeight, s = headingUp ? Math.ceil(Math.sqrt(w * w + h * h)) + 8 : Math.max(w, h);
+    var spin = $('spin').style;
+    spin.width = s + 'px'; spin.height = s + 'px'; spin.marginLeft = -s / 2 + 'px'; spin.marginTop = -s / 2 + 'px';
+    if (!headingUp) { spin.width = w + 'px'; spin.height = h + 'px'; spin.marginLeft = -w / 2 + 'px'; spin.marginTop = -h / 2 + 'px'; }
+    map.invalidateSize(false);
+  }
+
+  function turn() {
+    var want = headingUp && follow ? -bearing : 0, d = ((want - turned) % 360 + 540) % 360 - 180;
+    turned += d;
+    var t = 'rotate(' + turned.toFixed(1) + 'deg)';
+    $('spin').style.webkitTransform = t; $('spin').style.transform = t;
+    var a = $('arrow');
+    if (a) { var r = 'rotate(' + bearing.toFixed(1) + 'deg)'; a.style.webkitTransform = r; a.style.transform = r; }
+  }
+
+  function paintArrow() {
+    var a = $('arrow');
+    if (a) a.innerHTML = '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="20" fill="' + accent + '" opacity=".22"/>' +
+      '<path d="M22 6l11 28-11-6-11 6z" fill="' + accent + '" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>';
+  }
+
+  function tiles() {
+    stamp = Date.now();
+    if (key) {
+      base.setUrl(T + '/map/1/tile/basic/night/{z}/{x}/{y}.png?key=' + key + '&language=th-TH');
+      flow.setUrl(T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp);
+      if (!map.hasLayer(flow)) flow.addTo(map);
+      $('credit').textContent = '© TomTom';
+    } else {
+      base.options.subdomains = 'abcd';
+      base.setUrl('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png');
+      if (map.hasLayer(flow)) flow.remove();
+      $('credit').textContent = '© OpenStreetMap © CARTO';
+    }
+    if (!map.hasLayer(base)) base.addTo(map);
+  }
+  setInterval(function () {            // fresh traffic every two minutes
+    if (!key || document.hidden) return;
+    stamp = Date.now();
+    flow.setUrl(T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp);
+  }, 120000);
+
+  function say(text, seconds) {
+    clearTimeout(sayTimer);
+    $('say').textContent = text;
+    $('say').style.display = text && !route ? 'block' : 'none';
+    if (text && seconds) sayTimer = setTimeout(function () { $('say').style.display = 'none'; }, seconds * 1000);
+  }
+
+  function modeLabel() {
+    $('mode').innerHTML = headingUp
+      ? '<svg viewBox="0 0 24 24"><path d="M12 3l6 17-6-4-6 4z" fill="currentColor"/></svg>'
+      : '<span style="font-size:20px;font-weight:bold">N</span>';
+    map.dragging[headingUp ? 'disable' : 'enable']();
+  }
+
+  function refollow() {
+    follow = true; autoZoom = true;
+    $('centre').style.display = 'none';
+    if (here) map.setView(here, wantedZoom(), { animate: false });
+    turn();
+  }
+
+  function wantedZoom() { return kmh < 35 ? 17 : kmh < 75 ? 16 : 15; }
+
+  // ---------------------------------------------------------------- the car's position, from the app
+
+  function fix(lat, lon, dir, speed) {
+    var first = !here;
+    here = [lat, lon];
+    kmh = speed < 0 ? 0 : speed;
+    if (dir >= 0 && kmh > 5) bearing = dir;                       // a stopped car's compass reading wanders; keep the last good one
+    if (first) { car.addTo(map); paintArrow(); say('', 0); }
+    car.setLatLng(here);
+    if (follow) {
+      var z = autoZoom ? wantedZoom() : map.getZoom();
+      if (first || z !== map.getZoom()) map.setView(here, z, { animate: false });
+      else map.panTo(here, { animate: true, duration: 0.5, easeLinearity: 1 });
+    }
+    turn();
+    if (route) progress();
+  }
+
+  // ---------------------------------------------------------------- finding a place and a way there
+
+  function get(url, ok, fail) {
+    var x = new XMLHttpRequest();
+    x.open('GET', url, true);
+    x.timeout = 12000;
+    x.onload = function () {
+      if (x.status < 200 || x.status >= 300) return fail('http ' + x.status);
+      try { ok(JSON.parse(x.responseText)); } catch (e) { fail('bad answer'); }
+    };
+    x.onerror = function () { fail('no network'); };
+    x.ontimeout = function () { fail('timeout'); };
+    x.send();
+  }
+
+  function metres(a, b) {
+    var k = Math.PI / 180, dy = (b[0] - a[0]) * k, dx = (b[1] - a[1]) * k * Math.cos((a[0] + b[0]) / 2 * k);
+    return 6371000 * Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function find(query, ok, fail) {
+    var photon = function () {
+      get('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(query) + '&lat=' + here[0] + '&lon=' + here[1], function (j) {
+        var f = (j.features || [])[0];
+        if (!f) return fail('not found');
+        var p = f.properties || {};
+        ok({ at: [f.geometry.coordinates[1], f.geometry.coordinates[0]], name: p.name || p.street || query });
+      }, fail);
+    };
+    if (!key) return photon();
+    get(T + '/search/2/search/' + encodeURIComponent(query) + '.json?key=' + key + '&limit=1&countrySet=TH&language=th-TH&lat=' + here[0] + '&lon=' + here[1], function (j) {
+      var r = (j.results || [])[0];
+      if (!r) return photon();
+      ok({ at: [r.position.lat, r.position.lon], name: (r.poi && r.poi.name) || (r.address && r.address.freeformAddress) || query });
+    }, photon);
+  }
+
+  var TURN = { left: 'เลี้ยวซ้าย', right: 'เลี้ยวขวา', 'slight left': 'เบี่ยงซ้าย', 'slight right': 'เบี่ยงขวา',
+    'sharp left': 'เลี้ยวซ้ายหักศอก', 'sharp right': 'เลี้ยวขวาหักศอก', straight: 'ตรงไป', uturn: 'กลับรถ' };
+  var ICONS = { straight: 'M12 21V4M5 11l7-7 7 7', right: 'M6 21v-8a4 4 0 0 1 4-4h9M14 4l5 5-5 5', 'slight-right': 'M8 21v-6l9-9M9 5h8v8',
+    uturn: 'M7 21V9a4.5 4.5 0 0 1 9 0v7M11.5 12l4.5 4.5 4.5-4.5', roundabout: 'M12 21v-5M12 16a4 4 0 1 1 4-4M13.5 9.5l2.5 2.5 2.5-2.5',
+    arrive: 'M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10zM12 9.5a1.5 1.5 0 1 0 .01 0' };
+
+  function icon(kind) {
+    var flip = kind === 'left' || kind === 'slight-left', k = flip ? kind.replace('left', 'right') : kind;
+    return '<svg viewBox="0 0 24 24" stroke="' + accent + '"' + (flip ? ' style="transform:scaleX(-1);-webkit-transform:scaleX(-1)"' : '') + '><path d="' + (ICONS[k] || ICONS.straight) + '"/></svg>';
+  }
+  function osrmKind(m) {
+    if (m.type === 'arrive') return 'arrive';
+    if (m.type === 'roundabout' || m.type === 'rotary') return 'roundabout';
+    var d = m.modifier || '';
+    return d === 'uturn' ? 'uturn' : d.indexOf('slight') >= 0 ? 'slight-' + d.split(' ')[1] : d.indexOf('left') >= 0 ? 'left' : d.indexOf('right') >= 0 ? 'right' : 'straight';
+  }
+  function tomtomKind(mv) {
+    mv = mv || '';
+    if (mv.indexOf('ARRIVE') >= 0) return 'arrive';
+    if (mv.indexOf('UTURN') >= 0) return 'uturn';
+    if (mv.indexOf('ROUNDABOUT') >= 0) return 'roundabout';
+    var soft = /KEEP|BEAR|EXIT|MOTORWAY/.test(mv) ? 'slight-' : '';
+    return mv.indexOf('LEFT') >= 0 ? soft + 'left' : mv.indexOf('RIGHT') >= 0 ? soft + 'right' : 'straight';
+  }
+  function osrmText(st) {
+    var m = st.maneuver, road = st.name ? ' เข้า ' + st.name : '';
+    if (m.type === 'depart') return 'ออกเดินทาง' + (st.name ? ' ตาม ' + st.name : '');
+    if (m.type === 'arrive') return 'ถึงจุดหมาย';
+    if (m.type === 'roundabout' || m.type === 'rotary') return 'เข้าวงเวียน' + (m.exit ? ' ออกทางออกที่ ' + m.exit : '');
+    return (TURN[m.modifier] || 'ตรงไป') + road;
+  }
+
+  function ways(from, to, ok, fail) {
+    var finish = function (r) {
+      r.cum = [0];
+      for (var i = 1; i < r.pts.length; i++) r.cum[i] = r.cum[i - 1] + metres(r.pts[i - 1], r.pts[i]);
+      ok(r);
+    };
+    var osrm = function () {
+      get('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + ';' + to[1] + ',' + to[0] + '?overview=full&geometries=geojson&steps=true', function (j) {
+        var rt = (j.routes || [])[0];
+        if (!rt) return fail('no route');
+        var steps = [], acc = 0, l, s;
+        for (l = 0; l < rt.legs.length; l++) for (s = 0; s < rt.legs[l].steps.length; s++) {
+          var st = rt.legs[l].steps[s];
+          steps.push({ text: osrmText(st), at: acc, kind: osrmKind(st.maneuver) });
+          acc += st.distance;
+        }
+        var pts = [], c = rt.geometry.coordinates;
+        for (var i = 0; i < c.length; i++) pts.push([c[i][1], c[i][0]]);
+        finish({ traffic: false, dist: rt.distance, dur: rt.duration, pts: pts, steps: steps });
+      }, fail);
+    };
+    if (!key) return osrm();
+    get(T + '/routing/1/calculateRoute/' + from[0] + ',' + from[1] + ':' + to[0] + ',' + to[1] + '/json?key=' + key + '&traffic=true&travelMode=car&instructionsType=text&language=th-TH', function (j) {
+      var rt = (j.routes || [])[0];
+      if (!rt) return osrm();
+      var pts = [], l, i, ins = (rt.guidance || {}).instructions || [], steps = [];
+      for (l = 0; l < rt.legs.length; l++) for (i = 0; i < rt.legs[l].points.length; i++) pts.push([rt.legs[l].points[i].latitude, rt.legs[l].points[i].longitude]);
+      for (i = 0; i < ins.length; i++) steps.push({ text: ins[i].message, at: ins[i].routeOffsetInMeters, kind: tomtomKind(ins[i].maneuver) });
+      finish({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps });
+    }, osrm);                       // key refused or quota used up: fall back to the free router
+  }
+
+  function far(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' กม.' : Math.max(10, Math.round(m / 10) * 10) + ' ม.'; }
+  function lasting(s) { var m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที' : m + ' นาที'; }
+
+  function start(r, name, target) {
+    route = r; route.name = name; route.to = target;
+    at = 0; along = 0; off = 0;
+    line.setStyle({ color: accent }).setLatLngs(r.pts).addTo(map);
+    done.setLatLngs([]).addTo(map);
+    pin.setLatLng(target).addTo(map);
+    $('say').style.display = 'none';
+    $('trip').style.display = 'block';
+    $('turn').style.display = 'block';
+    $('tripName').textContent = name;
+    progress();
+  }
+
+  function clear(quiet) {
+    route = null;
+    line.remove(); done.remove(); pin.remove();
+    $('trip').style.display = 'none';
+    $('turn').style.display = 'none';
+    if (!quiet) host.save('route', '');
+  }
+
+  /** Where the car is along the route: how far is left, and what the next turn is. */
+  function progress() {
+    if (!route || !here) return;
+    // nearest point on the route line itself, not just its corners: a straight motorway has corners kilometres apart
+    var k = Math.PI / 180, cos = Math.cos(here[0] * k), best = -1, bestD = 1e9, bestT = 0, to = Math.min(route.pts.length - 2, at + 80);
+    for (var i = Math.max(0, at - 3); i <= to; i++) {
+      var a = route.pts[i], b = route.pts[i + 1];
+      var bx = (b[1] - a[1]) * cos, by = b[0] - a[0], px = (here[1] - a[1]) * cos, py = here[0] - a[0], len = bx * bx + by * by;
+      var t = len ? Math.max(0, Math.min(1, (px * bx + py * by) / len)) : 0;
+      var d = metres(here, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      if (d < bestD) { bestD = d; best = i; bestT = t; }
+    }
+    if (bestD < 70) { at = best; along = bestT; off = 0; } else if (kmh > 8) off++;
+    var gone = route.cum[at] + (route.cum[at + 1] - route.cum[at]) * along || 0, left = route.dist - gone;
+    if (off >= 6 && Date.now() - lastReroute > 20000) {            // left the route for a few seconds: plan again from here
+      lastReroute = Date.now(); off = 0;
+      var name = route.name, target = route.to;
+      ways(here, target, function (r) { if (route) start(r, name, target); }, function () { });
+      return;
+    }
+    if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); return; }
+    done.setLatLngs(route.pts.slice(0, at + 1).concat([here]));
+    $('tripMain').textContent = far(left) + '  ·  ' + lasting(route.dur * left / Math.max(1, route.dist));
+    var next = null;
+    for (var s = 0; s < route.steps.length; s++) if (route.steps[s].at > gone + 8) { next = route.steps[s]; break; }
+    if (!next) next = { text: 'ถึงจุดหมาย', at: route.dist, kind: 'arrive' };
+    $('turnIcon').innerHTML = icon(next.kind);
+    $('turnFar').textContent = 'อีก ' + far(next.at - gone);
+    $('turnText').textContent = next.text;
+  }
+
+  /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
+  function go(query) {
+    if (!here) return host.result(JSON.stringify({ ok: false, why: 'no gps' }));
+    find(query, function (place) {
+      ways(here, place.at, function (r) {
+        start(r, place.name, place.at);
+        host.save('route', query);
+        host.result(JSON.stringify({ ok: true, name: place.name, km: Math.round(r.dist / 100) / 10, minutes: Math.round(r.dur / 60), traffic: r.traffic }));
+      }, function (why) { host.result(JSON.stringify({ ok: false, why: 'route: ' + why, name: place.name })); });
+    }, function (why) { host.result(JSON.stringify({ ok: false, why: 'place: ' + why })); });
+  }
+
+  // ---------------------------------------------------------------- keys on the map
+
+  $('in').onclick = function () { autoZoom = false; map.setZoom(Math.min(19, map.getZoom() + 1)); };
+  $('out').onclick = function () { autoZoom = false; map.setZoom(Math.max(4, map.getZoom() - 1)); };
+  $('centre').onclick = refollow;
+  $('stop').onclick = function () { clear(false); };
+  $('mode').onclick = function () {
+    headingUp = !headingUp;
+    host.save('headingUp', headingUp ? '1' : '0');
+    modeLabel(); size(); refollow();
+  };
+  map.on('dragstart', function () {             // looking around by hand (north-up only): hold still, then return to the car by itself
+    follow = false;
+    $('centre').style.display = 'block';
+    clearTimeout(freeTimer);
+    freeTimer = setTimeout(refollow, 20000);
+  });
+  window.addEventListener('resize', size);
+
+  window.car = {
+    fix: fix, go: go, clear: function () { clear(false); },
+    config: function (k, colour, up) {
+      var changed = k !== key;
+      key = k || '';
+      if (colour) accent = colour;
+      if (up === 0 || up === 1) headingUp = up === 1;
+      modeLabel(); size(); paintArrow(); turn();
+      if (changed || !map.hasLayer(base)) tiles();
+      if (route) line.setStyle({ color: accent });
+    }
+  };
+
+  modeLabel(); size(); tiles();
+  say('รอสัญญาณ GPS', 0);
+  host.result(JSON.stringify({ ready: true }));
+})();
+</script>
+</body>
+</html>
