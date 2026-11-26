@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <!-- read the Bluetooth link state for the music report; start again with the head unit -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
+    <!-- answer and end calls through the hands-free link; show the caller's name from contacts the head unit holds -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- road name and posted speed limit come from an online map service -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- the voice co-pilot records the spoken question -->

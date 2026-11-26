@@ -96,6 +96,11 @@ public class OverlayService extends Service {
     private TextView themeKey, voiceKey;
     private android.widget.SeekBar hueBar;
     private PhoneAsk phoneAsk;
+    private CallWatch calls;
+    private LinearLayout callCard;
+    private TextView callWho, callState, answerKey;
+    private boolean callShown, ringing;
+    private long callStarted;
     private TextView phoneKey;
     private LinearLayout settings;
     private TextView warnKey, bootKey, roadKey, briefKey, pathKey;
@@ -158,6 +163,11 @@ public class OverlayService extends Service {
         if (code.length() != 4) { code = String.format(Locale.US, "%04d", new java.util.Random().nextInt(10000)); prefs.edit().putString("askCode", code).apply(); }
         phoneAsk = new PhoneAsk(this, code);
         phoneAsk.start();
+        buildCallCard();
+        calls = new CallWatch(this, new CallWatch.Listener() {
+            @Override public void call(final int state, final String number, final String name) { ui.post(new Runnable() { @Override public void run() { showCall(state, number, name); } }); }
+        });
+        calls.start();
         NowPlaying.get().addListener(musicChanged);
         NowPlaying.get().start(this);
         musicChanged.run();
@@ -172,6 +182,8 @@ public class OverlayService extends Service {
         ui.removeCallbacksAndMessages(null);
         Assistant.get().detach(aiListener);
         if (phoneAsk != null) phoneAsk.stop();
+        if (calls != null) calls.stop();
+        try { if (callShown) windows.removeView(callCard); } catch (Throwable ignored) { }
         NowPlaying.get().removeListener(musicChanged);
         try { if (locations != null) locations.removeUpdates(gps); } catch (Throwable ignored) { }
         try { if (dashShown) windows.removeView(dash); } catch (Throwable ignored) { }
@@ -528,6 +540,74 @@ public class OverlayService extends Service {
         return new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", true).apply(); showPath(); path.nudge(centre, width, tilt, length); } };
     }
 
+    // ---------------------------------------------------------------- phone calls
+
+    /** The card that appears for a call: who it is, and keys to answer, hang up, or see the head unit's own call screen. */
+    private void buildCallCard() {
+        callCard = new LinearLayout(this);
+        callCard.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable bg = round(0xF50B111A, unit * 3.5f);
+        bg.setStroke(3, 0xFF46DBA0);
+        callCard.setBackground(bg);
+        callCard.setPadding(unit * 4, unit * 2, unit * 4, unit * 3);
+        callState = text("สายเรียกเข้า", 3f, INK_DIM, false);
+        callCard.addView(callState);
+        callWho = text("", 6f, INK, true);
+        callWho.setSingleLine(true);
+        callWho.setEllipsize(TextUtils.TruncateAt.END);
+        callCard.addView(callWho);
+        LinearLayout keys = new LinearLayout(this);
+        answerKey = callKey(keys, "รับสาย", 0xFF1FA971, new Runnable() { @Override public void run() {
+            if (calls == null || !calls.answer()) { callState.setText("รับจากตรงนี้ไม่ได้ กำลังเปิดหน้าจอโทรของเครื่อง"); revealUnitCallScreen(); }
+        } });
+        callKey(keys, "วางสาย", 0xFFD64545, new Runnable() { @Override public void run() {
+            if (calls == null || !calls.hangUp(ringing)) { callState.setText("วางจากตรงนี้ไม่ได้ กำลังเปิดหน้าจอโทรของเครื่อง"); revealUnitCallScreen(); }
+        } });
+        callKey(keys, "หน้าจอโทร", 0x33FFFFFF, new Runnable() { @Override public void run() { revealUnitCallScreen(); } });
+        LinearLayout.LayoutParams keysAt = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 13);
+        keysAt.topMargin = unit * 2;
+        callCard.addView(keys, keysAt);
+    }
+
+    private TextView callKey(LinearLayout row, String label, int colour, final Runnable action) {
+        TextView k = text(label, 3.6f, 0xFFFFFFFF, true);
+        k.setGravity(Gravity.CENTER);
+        k.setBackground(round(colour, unit * 2.5f));
+        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { try { action.run(); } catch (Throwable ignored) { } } });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        at.setMargins(0, 0, unit * 2, 0);
+        row.addView(k, at);
+        return k;
+    }
+
+    /** Step aside so the head unit's own call screen, which sits under the dashboard, can be seen and used. */
+    private void revealUnitCallScreen() { if (!cameraMode) setCameraMode(true); }
+
+    private void showCall(int state, String number, String name) {
+        if (state == CallWatch.ENDED) {
+            try { if (callShown) windows.removeView(callCard); } catch (Throwable ignored) { }
+            callShown = false;
+            return;
+        }
+        ringing = state == CallWatch.INCOMING || state == CallWatch.WAITING;
+        if (ringing) Assistant.get().quiet();                     // never talk over a ringing phone
+        if (state == CallWatch.ACTIVE && callStarted == 0) callStarted = SystemClock.elapsedRealtime();
+        if (state != CallWatch.ACTIVE) callStarted = 0;
+        callWho.setText(name != null && !name.isEmpty() ? name : number == null || number.isEmpty() ? "ไม่ทราบเบอร์" : number);
+        callState.setText(ringing ? "สายเรียกเข้า" : state == CallWatch.ACTIVE ? "กำลังคุย" : state == CallWatch.DIALING || state == CallWatch.ALERTING ? "กำลังโทรออก" : "พักสาย");
+        answerKey.setVisibility(ringing ? View.VISIBLE : View.GONE);
+        if (!callShown) {
+            try {
+                WindowManager.LayoutParams at = new WindowManager.LayoutParams(unit * 96, WindowManager.LayoutParams.WRAP_CONTENT, layer(),
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+                at.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                at.y = unit * 3;
+                windows.addView(callCard, at);
+                callShown = true;
+            } catch (Throwable ignored) { revealUnitCallScreen(); }      // cannot show ours: at least uncover the unit's
+        }
+    }
+
     // ---------------------------------------------------------------- small builders
 
     private GradientDrawable round(int color, float radius) {
@@ -695,7 +775,11 @@ public class OverlayService extends Service {
             gauge.setSpeed(fresh ? speedKmh : -1);
             if (!shown.contentEquals(speedC.getText())) speedC.setText(shown);
             speedC.setTextColor(over ? SIGN_RED : INK);
-            if (over && speedKmh > limit + 3 && SystemClock.elapsedRealtime() - lastTone > 4000) beep();
+            if (over && speedKmh > limit + 3 && !CallWatch.inCall && SystemClock.elapsedRealtime() - lastTone > 4000) beep();
+            if (callShown && callStarted > 0) {
+                long sec = (SystemClock.elapsedRealtime() - callStarted) / 1000;
+                callState.setText(String.format(Locale.US, "กำลังคุย  %d:%02d", sec / 60, sec % 60));
+            }
             Calendar clock = Calendar.getInstance();
             String time = String.format(Locale.US, "%02d:%02d", clock.get(Calendar.HOUR_OF_DAY), clock.get(Calendar.MINUTE));
             if (!time.contentEquals(clockD.getText())) {
