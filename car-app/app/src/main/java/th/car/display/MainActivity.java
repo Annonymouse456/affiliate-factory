@@ -71,7 +71,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 2.1";
+    private static final String VERSION = "แอป 2.2";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -362,6 +362,7 @@ public class MainActivity extends Activity {
     private void aiSettings() {
         final SharedPreferences p = App.prefs(this);
         String[] items = {
+                "รับคีย์จากมือถือ (ไม่ต้องพิมพ์บนจอ)",
                 "คีย์ Claude: " + masked(Assistant.claudeKey(this)),
                 "คีย์ OpenAI (ฟังและพูด): " + masked(Assistant.openAiKey(this)),
                 "ให้ AI ดูหน้าจอได้ (สำหรับถามเรื่องที่เห็นจากกล้อง): " + (ScreenGrab.ready() ? "อนุญาตแล้ว" : "ยังไม่อนุญาต"),
@@ -371,7 +372,9 @@ public class MainActivity extends Activity {
         };
         new AlertDialog.Builder(this).setTitle("ตั้งค่า AI").setItems(items, new DialogInterface.OnClickListener() {
             @Override public void onClick(DialogInterface d, int which) {
-                if (which == 0) enterKey("คีย์ Claude (ขึ้นต้นด้วย sk-ant-)", "claudeKey");
+                which -= 1;
+                if (which == -1) keysFromPhone();
+                else if (which == 0) enterKey("คีย์ Claude (ขึ้นต้นด้วย sk-ant-)", "claudeKey");
                 else if (which == 1) enterKey("คีย์ OpenAI (ขึ้นต้นด้วย sk-)", "openaiKey");
                 else if (which == 2) {
                     try { startActivityForResult(((MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE)).createScreenCaptureIntent(), 7); }
@@ -383,6 +386,28 @@ public class MainActivity extends Activity {
             }
         }).show();
     }
+
+    /** Serve a small page on the local Wi-Fi so the keys can be pasted on the phone and sent straight here. */
+    private void keysFromPhone() {
+        String address = KeyReceiver.localAddress();
+        if (address == null) { showInfo("จอรถยังไม่ได้ต่อ Wi-Fi\nต่อจอรถกับฮอตสปอตของมือถือก่อน แล้วกดใหม่"); return; }
+        final KeyReceiver receiver = new KeyReceiver();
+        try {
+            receiver.start(this, new KeyReceiver.Done() {
+                @Override public void saved(final String summary) { ui.post(new Runnable() { @Override public void run() { if (keyDialog != null) keyDialog.dismiss(); showInfo("ได้รับคีย์จากมือถือแล้ว\n" + summary + "\n\nลองกด ตั้งค่า AI แล้วเลือก พิมพ์คำถามทดสอบ"); } }); }
+            });
+        } catch (Throwable e) { showInfo("เปิดช่องรับคีย์ไม่ได้\n" + e); return; }
+        keyDialog = new AlertDialog.Builder(this).setTitle("รับคีย์จากมือถือ")
+                .setMessage("1. มือถือต้องเป็นเครื่องที่แชร์ฮอตสปอตให้จอรถ (หรืออยู่ Wi-Fi เดียวกัน)\n"
+                        + "2. เปิด Safari หรือ Chrome บนมือถือ พิมพ์:\n\n      " + address + ":" + KeyReceiver.PORT + "\n\n"
+                        + "3. ใส่รหัส:   " + receiver.code + "\n"
+                        + "4. วางคีย์ แล้วกด ส่งเข้าจอรถ\n\nหน้านี้เปิดรับ 5 นาที คีย์ไม่ผ่านอินเทอร์เน็ต")
+                .setNegativeButton("ปิด", null)
+                .setOnDismissListener(new DialogInterface.OnDismissListener() { @Override public void onDismiss(DialogInterface d) { receiver.stop(); keyDialog = null; } })
+                .show();
+    }
+
+    private AlertDialog keyDialog;
 
     private void enterKey(String title, final String pref) {
         final EditText box = new EditText(this);
