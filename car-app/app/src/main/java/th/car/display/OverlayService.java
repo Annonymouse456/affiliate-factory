@@ -520,7 +520,8 @@ public class OverlayService extends Service {
             @Override public void on(RoadInfo.Result r) {
                 lookingUp = false;
                 if (!running || roadText == null || !prefs.getBoolean("roads", true)) return;
-                if (r.error != null) { roadNote = "แผนที่: " + r.error; return; }
+                // The road name is a nicety from a free public service that is often slow; stay quiet when it does not answer.
+                if (r.error != null) { roadNote = ""; return; }
                 roadWay = r.wayId;
                 roadText.setText(r.name == null ? "" : r.name);
                 roadText.setVisibility(r.name == null ? View.GONE : View.VISIBLE);

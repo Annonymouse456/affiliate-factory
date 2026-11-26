@@ -114,7 +114,7 @@ final class Assistant {
         } catch (Throwable e) {
             recorder = null;
             audio.abandonAudioFocus(null);
-            show(State.IDLE, e instanceof IllegalStateException ? e.getMessage() : e instanceof java.io.IOException ? "ต่อเน็ตไม่ได้" : "ผิดพลาด: " + e.getClass().getSimpleName());
+            show(State.IDLE, e instanceof IllegalStateException ? e.getMessage() : Http.problem(e));
         }
     }
 
@@ -130,27 +130,51 @@ final class Assistant {
             if (a.problem != null) { audio.abandonAudioFocus(null); show(State.IDLE, a.problem); return; }
             if (!aloud) { audio.abandonAudioFocus(null); show(State.IDLE, a.text); return; }
             show(State.SPEAKING, a.text);
-            byte[] mp3 = new Speech(openAiKey(app)).speak(a.text);
-            File file = new File(app.getCacheDir(), "answer.mp3");
-            FileOutputStream out = new FileOutputStream(file);
-            out.write(mp3);
-            out.close();
+            speak(a.text, audio);
+        } catch (Throwable e) {
+            stopSpeaking();
+            show(State.IDLE, Http.problem(e));
+        }
+    }
+
+    /** Read the answer aloud. If speech fails the written answer stays on the card, with the reason. */
+    private void speak(final String text, AudioManager audio) {
+        try {
+            final byte[] mp3 = new Speech(openAiKey(app)).speak(text);
             audio.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
-            final String text = a.text;
             MediaPlayer p = new MediaPlayer();
             player = p;
             p.setAudioStreamType(AudioManager.STREAM_MUSIC);
-            p.setDataSource(file.getAbsolutePath());
+            if (android.os.Build.VERSION.SDK_INT >= 23) {
+                // Played straight from memory: this head unit cannot write files in the app's own folder.
+                p.setDataSource(new android.media.MediaDataSource() {
+                    @Override public int readAt(long position, byte[] buffer, int offset, int size) {
+                        if (position >= mp3.length) return -1;
+                        int n = (int) Math.min(size, mp3.length - position);
+                        System.arraycopy(mp3, (int) position, buffer, offset, n);
+                        return n;
+                    }
+                    @Override public long getSize() { return mp3.length; }
+                    @Override public void close() { }
+                });
+            } else {
+                File dir = app.getExternalCacheDir() != null ? app.getExternalCacheDir() : app.getCacheDir();
+                File file = new File(dir, "answer.mp3");
+                FileOutputStream out = new FileOutputStream(file);
+                out.write(mp3);
+                out.close();
+                p.setDataSource(file.getAbsolutePath());
+            }
             p.setOnCompletionListener(new MediaPlayer.OnCompletionListener() { @Override public void onCompletion(MediaPlayer mp) { stopSpeaking(); show(State.IDLE, text); } });
-            p.setOnErrorListener(new MediaPlayer.OnErrorListener() { @Override public boolean onError(MediaPlayer mp, int what, int extra) { stopSpeaking(); show(State.IDLE, text); return true; } });
+            p.setOnErrorListener(new MediaPlayer.OnErrorListener() { @Override public boolean onError(MediaPlayer mp, int what, int extra) { stopSpeaking(); show(State.IDLE, text + "\n(เล่นเสียงตอบไม่ได้ รหัส " + what + ")"); return true; } });
             p.prepare();
             p.start();
         } catch (Speech.Failure e) {
-            audio.abandonAudioFocus(null);
-            show(State.IDLE, e.getMessage());
+            stopSpeaking();
+            show(State.IDLE, text + "\n(พูดตอบไม่ได้: " + e.getMessage() + ")");
         } catch (Throwable e) {
             stopSpeaking();
-            show(State.IDLE, e instanceof java.io.IOException ? "ต่อเน็ตไม่ได้" : "ผิดพลาด: " + e.getClass().getSimpleName());
+            show(State.IDLE, text + "\n(พูดตอบไม่ได้: " + Http.problem(e) + ")");
         }
     }
 

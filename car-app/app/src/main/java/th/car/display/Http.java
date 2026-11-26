@@ -49,5 +49,15 @@ final class Http {
         } finally { c.disconnect(); }
     }
 
+    /** A short Thai reason for a failed call: real network trouble is told apart from everything else. */
+    static String problem(Throwable e) {
+        if (e instanceof java.net.UnknownHostException || e instanceof java.net.ConnectException || e instanceof java.net.NoRouteToHostException)
+            return "ต่อเน็ตไม่ได้ ตรวจฮอตสปอตของมือถือ";
+        if (e instanceof java.net.SocketTimeoutException) return "เน็ตช้าเกินไป รอไม่ไหว ลองใหม่อีกครั้ง";
+        if (e instanceof javax.net.ssl.SSLException) return "เชื่อมต่อแบบปลอดภัยไม่สำเร็จ (ตรวจวันที่และเวลาของจอ)";
+        String m = e.getMessage() == null ? "" : e.getMessage();
+        return "ผิดพลาด: " + e.getClass().getSimpleName() + (m.isEmpty() ? "" : " " + (m.length() > 80 ? m.substring(0, 80) : m));
+    }
+
     private Http() { }
 }

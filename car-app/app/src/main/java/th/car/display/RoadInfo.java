@@ -27,7 +27,7 @@ class RoadInfo {
     interface Done { void on(Result r); }
 
     private static final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private static final String[] SERVERS = {"https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"};
+    private static final String[] SERVERS = {"https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter"};
 
     static void lookup(final double lat, final double lon, final Handler ui, final Done done) {
         worker.execute(new Runnable() {
@@ -50,7 +50,7 @@ class RoadInfo {
     }
 
     private static JSONObject overpass(String server, String query) throws Exception {
-        Http.Reply r = Http.send("GET", server + "?data=" + URLEncoder.encode(query, "UTF-8"), new String[]{"User-Agent", "car-display-app/2.0"}, null, null, 25000);
+        Http.Reply r = Http.send("GET", server + "?data=" + URLEncoder.encode(query, "UTF-8"), new String[]{"User-Agent", "car-display-app/2.0"}, null, null, 15000);
         if (!r.ok()) throw new java.io.IOException("HTTP " + r.code);
         return new JSONObject(r.text());
     }
