@@ -82,7 +82,11 @@
   #optRow .t { display: block; font-size: 19px; font-weight: 700; color: #111; }
   #optRow small { display: block; font-size: 13px; color: #666; }
   #optRow .badge { position: absolute; top: 8px; right: 8px; font-style: normal; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #0a7d33; color: #fff; display: none; }
-  #optRow .fast .badge { display: block; }
+  #optRow .badge { display: block; }
+  #nav #optRow { overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 2px; }
+  #nav #optRow button { flex: 0 0 46%; scroll-snap-align: start; }
+  #nav #optRow button:only-child, #nav #optRow button:first-child:nth-last-child(2), #nav #optRow button:first-child:nth-last-child(2) ~ button { flex: 1 1 0; }
+  #optRow .via { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #navStats { display: none; margin-top: 2px; }
   #navStats .big { font-size: 32px; font-weight: 700; line-height: 1.15; }
   #navStats .meta { color: #555; font-size: 15px; }
@@ -148,8 +152,6 @@
   <div id="navSub"></div>
   <div id="navStats"></div>
   <div class="row" id="optRow">
-    <button id="optToll"><b>ขึ้นทางด่วน</b><span class="t"></span><small></small><i class="badge">เร็วสุด</i></button>
-    <button id="optFree"><b>ไม่ขึ้นทางด่วน</b><span class="t"></span><small></small><i class="badge">เร็วสุด</i></button>
   </div>
   <div class="row">
     <button id="navGo"></button>
@@ -502,7 +504,7 @@ const fmtT = s => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m
 
 let turnAt = null, follow = true;
 const NAV_CAM = { pitch: 70, zoom: 18 };     // มุมกล้องตอนนำทาง: ก้มต่ำ เห็นเส้นขอบฟ้าและทางข้างหน้า
-let altRoute = null, routeOpts = {}, avoidToll = store.get('opt_avoidToll', 'false') === 'true';
+let routeList = [], avoidToll = store.get('opt_avoidToll', 'false') === 'true';
 let dest = null, route = null, navOn = false, watchId = null, mePos = null, meMarker = null;
 let offCount = 0, lastReroute = 0, lastSpoken = null, wakeLock = null;
 let voice = store.get('opt_voice', 'true') === 'true';
@@ -540,45 +542,53 @@ function osrmText(st) {
   return (TURN[m.modifier] || 'ตรงไป') + road;
 }
 
-async function getRoute(from, to, avoidToll) {
-  let r = null;
+// ขอเส้นทางหลายแบบในครั้งเดียว (เส้นหลัก + ทางเลือกอื่น) — คืนเป็นรายการ
+async function getRoutes(from, to, noToll, alts) {
+  let list = null;
   if (key) {
     try {
       const res = await fetch(`${T}/routing/1/calculateRoute/${from[1]},${from[0]}:${to[1]},${to[0]}/json` +
-        `?key=${key}&traffic=true&travelMode=car&instructionsType=text&language=th-TH&sectionType=traffic` +
-        (avoidToll ? '&avoid=tollRoads' : ''));
+        `?key=${key}&traffic=true&travelMode=car&instructionsType=text&language=th-TH&sectionType=traffic&sectionType=toll` +
+        (alts ? `&maxAlternatives=${alts}` : '') + (noToll ? '&avoid=tollRoads' : ''));
       if (!res.ok) throw new Error(res.status);
-      const rt = (await res.json()).routes[0];
-      r = { traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds,
-        delay: rt.summary.trafficDelayInSeconds || 0,
-        jams: (rt.sections || []).filter(x => x.sectionType === 'TRAFFIC' && x.magnitudeOfDelay > 0)
-          .map(x => ({ a: x.startPointIndex, b: x.endPointIndex, m: x.magnitudeOfDelay })),
-        coords: rt.legs.flatMap(l => l.points.map(p => [p.longitude, p.latitude])),
-        steps: ((rt.guidance || {}).instructions || []).map(i => ({ text: i.message, at: i.routeOffsetInMeters, kind: tomtomKind(i.maneuver) })) };
-    } catch { r = null; }   // key ใช้ไม่ได้ / โควตาหมด → ใช้ OSRM แทน
+      list = (await res.json()).routes.map(rt => {
+        const sec = rt.sections || [];
+        return { traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds,
+          delay: rt.summary.trafficDelayInSeconds || 0, toll: sec.some(x => x.sectionType === 'TOLL' || x.sectionType === 'TOLL_ROAD'),
+          jams: sec.filter(x => x.sectionType === 'TRAFFIC' && x.magnitudeOfDelay > 0)
+            .map(x => ({ a: x.startPointIndex, b: x.endPointIndex, m: x.magnitudeOfDelay })),
+          coords: rt.legs.flatMap(l => l.points.map(p => [p.longitude, p.latitude])),
+          steps: ((rt.guidance || {}).instructions || []).map(i => ({ text: i.message, at: i.routeOffsetInMeters, kind: tomtomKind(i.maneuver) })) };
+      });
+    } catch { list = null; }   // key ใช้ไม่ได้ / โควตาหมด → ใช้ OSRM แทน
   }
-  if (!r) {
+  if (!list) {
     const url = `https://router.project-osrm.org/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}` +
-      `?overview=full&geometries=geojson&steps=true`;
-    let res = await fetch(url + (avoidToll ? '&exclude=toll' : ''));
-    if (!res.ok && avoidToll) res = await fetch(url + '&exclude=motorway');
+      `?overview=full&geometries=geojson&steps=true` + (alts ? `&alternatives=${alts}` : '');
+    let res = await fetch(url + (noToll ? '&exclude=toll' : ''));
+    if (!res.ok && noToll) res = await fetch(url + '&exclude=motorway');
     if (!res.ok) throw new Error('route ' + res.status);
-    const rt = ((await res.json()).routes || [])[0];
-    if (!rt) throw new Error('no route');
-    let acc = 0;
-    r = { traffic: false, dist: rt.distance, dur: rt.duration, coords: rt.geometry.coordinates,
-      steps: rt.legs.flatMap(l => l.steps).map(st => { const o = { text: osrmText(st), at: acc, kind: osrmKind(st.maneuver) }; acc += st.distance; return o; }) };
+    list = ((await res.json()).routes || []).map(rt => {
+      let acc = 0; const sts = rt.legs.flatMap(l => l.steps);
+      return { traffic: false, dist: rt.distance, dur: rt.duration, coords: rt.geometry.coordinates,
+        via: (rt.legs[0] && rt.legs[0].summary) || '',
+        toll: sts.some(st => (st.intersections || []).some(x => (x.classes || []).includes('toll'))),
+        steps: sts.map(st => { const o = { text: osrmText(st), at: acc, kind: osrmKind(st.maneuver) }; acc += st.distance; return o; }) };
+    });
+    if (!list.length) throw new Error('no route');
   }
-  r.cum = [0];
-  for (let i = 1; i < r.coords.length; i++) r.cum[i] = r.cum[i - 1] + dist(r.coords[i - 1], r.coords[i]);
-  return r;
+  for (const r of list) {
+    if (noToll) r.toll = false;
+    r.cum = [0];
+    for (let i = 1; i < r.coords.length; i++) r.cum[i] = r.cum[i - 1] + dist(r.coords[i - 1], r.coords[i]);
+  }
+  return list;
 }
-
 const JAM = ['match', ['get', 'm'], 1, '#ffb000', 2, '#ff6a00', 3, '#e0201b', '#8b0000'];
 function drawRoute() {
   const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
   const feats = [];
-  if (altRoute && !navOn) feats.push(line(altRoute.coords, { kind: 'alt' }));
+  if (!navOn) routeList.forEach((r, i) => { if (r !== route) feats.push(line(r.coords, { kind: 'alt', idx: i })); });
   if (route) {
     feats.push(line(route.coords, { kind: 'main' }));
     for (const j of route.jams || []) feats.push(line(route.coords.slice(j.a, j.b + 1), { kind: 'jam', m: j.m }));
@@ -760,12 +770,12 @@ for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => {
 };
 function setDest(p, label) {
   if (navOn) return;
-  dest = { p, label }; route = null; altRoute = null; routeOpts = {}; drawRoute();
+  dest = { p, label }; route = null; routeList = []; drawRoute();
   sheet(label, 'แตะปุ่มเพื่อหาเส้นทางจากตำแหน่งของคุณ', '🧭 เส้นทางไปที่นี่');
 }
 function closeNav() {
   navOn = false; turnAt = null; $('recenter').style.display = 'none'; navLook(false);
-  route = null; altRoute = null; routeOpts = {}; dest = null; drawRoute();
+  route = null; routeList = []; dest = null; drawRoute();
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   if (window.speechSynthesis) speechSynthesis.cancel();
@@ -786,12 +796,19 @@ async function planRoute() {
   catch { sheet(dest.label, 'หาตำแหน่งไม่ได้ — เปิดโลเคชั่นและอนุญาตให้เว็บนี้ใช้ตำแหน่ง แล้วลองใหม่', '🧭 ลองใหม่'); return false; }
   showMe(from);
   sheet(dest.label, 'กำลังคำนวณเส้นทาง…', null);
-  routeOpts = {};
-  try { routeOpts.toll = await getRoute(from, dest.p, false); } catch {}
-  try { routeOpts.free = await getRoute(from, dest.p, true); } catch {}
-  if (!routeOpts.toll && !routeOpts.free) { sheet(dest.label, 'คำนวณเส้นทางไม่ได้ — ตรวจอินเทอร์เน็ต หรือปลายทางอาจไปด้วยรถไม่ได้', '🧭 ลองใหม่'); return false; }
-  // ถ้าสองแบบได้เส้นเดียวกัน แปลว่าเส้นทางนี้ไม่ผ่านทางด่วนอยู่แล้ว
-  if (routeOpts.toll && routeOpts.free && Math.abs(routeOpts.toll.dist - routeOpts.free.dist) < 50) delete routeOpts.free;
+  // ขอ 2 รอบ: แบบปกติ (เส้นเร็วสุด + ทางเลือก) และแบบเลี่ยงทางด่วน แล้วรวมกัน ตัดเส้นที่ซ้ำออก
+  let found = [];
+  try { found = found.concat(await getRoutes(from, dest.p, false, 2)); } catch {}
+  try { found = found.concat(await getRoutes(from, dest.p, true, 1)); } catch {}
+  routeList = [];
+  for (const r of found.sort((a, b) => a.dur - b.dur)) {
+    const same = routeList.find(x => Math.abs(x.dist - r.dist) < 80 && Math.abs(x.dur - r.dur) < 45);
+    if (same) { if (!r.toll) same.toll = false; } else if (routeList.length < 5) routeList.push(r);
+  }
+  route = null;
+  if (!routeList.length) { sheet(dest.label, 'คำนวณเส้นทางไม่ได้ — ตรวจอินเทอร์เน็ต หรือปลายทางอาจไปด้วยรถไม่ได้', '🧭 ลองใหม่'); return false; }
+  // เลือกเส้นเริ่มต้น: เร็วสุด — หรือเร็วสุดที่ไม่ขึ้นทางด่วน ถ้าครั้งก่อนเลือกแบบนั้นไว้
+  route = (avoidToll && routeList.find(r => !r.toll)) || routeList[0];
   lastSpoken = null; offCount = 0;
   return true;
 }
@@ -800,10 +817,6 @@ function previewText() {
   return `${fmtD(route.dist)} · ${fmtT(route.dur)} · ` + (route.delay > 60 ? `รถติด ช้าลง ${fmtT(route.delay)}` : 'รถไม่ติด');
 }
 function showPreview(fit) {
-  const both = routeOpts.toll && routeOpts.free;
-  const useFree = both ? avoidToll : !routeOpts.toll;
-  route = useFree ? routeOpts.free : routeOpts.toll;
-  altRoute = both ? (useFree ? routeOpts.toll : routeOpts.free) : null;
   drawRoute();
   sheet(dest.label, '', '▶ เริ่มนำทาง', 'ยกเลิก');
   // สรุปเส้นทาง: เวลาตัวใหญ่ (สีตามความติด) + ระยะทาง + เวลาถึง + ป้ายสภาพจราจร
@@ -812,25 +825,36 @@ function showPreview(fit) {
   const chip = { na: 'ยังไม่รู้สภาพรถติด (ไม่มี key)', ok: 'รถไม่ติด', slow: `รถติด ช้าลง ${fmtT(route.delay || 0)}`, jam: `รถติดมาก ช้าลง ${fmtT(route.delay || 0)}` }[lvl];
   $('navSub').style.display = 'none'; $('navStats').style.display = 'block';
   $('navStats').innerHTML = `<div class="big ${lvl === 'na' ? '' : lvl}">${fmtT(route.dur)}</div>` +
-    `<div class="meta">${fmtD(route.dist)} · ถึง ${eta} น.${both ? '' : ' · ไม่ผ่านทางด่วน'}</div><span class="chip ${lvl}">${chip}</span>`;
-  if (both) {
-    $('optRow').style.display = 'flex';
-    const fastest = routeOpts.toll.dur <= routeOpts.free.dur ? 'optToll' : 'optFree';
-    for (const [id, r, on] of [['optToll', routeOpts.toll, !useFree], ['optFree', routeOpts.free, useFree]]) {
-      $(id).classList.toggle('on', on); $(id).classList.toggle('fast', id === fastest);
-      $(id).querySelector('.t').textContent = fmtT(r.dur);
-      $(id).querySelector('small').textContent = fmtD(r.dist) + (r.traffic && r.delay > 60 ? ` · ติด +${fmtT(r.delay)}` : '');
-    }
+    `<div class="meta">${fmtD(route.dist)} · ถึง ${eta} น.</div><span class="chip ${lvl}">${chip}</span>`;
+  // การ์ดเส้นทางทั้งหมด (เลื่อนซ้ายขวาได้) — แตะการ์ด หรือแตะเส้นสีเทาบนแผนที่เพื่อเลือก
+  const row = $('optRow'); row.replaceChildren();
+  if (routeList.length > 1) {
+    row.style.display = 'flex';
+    routeList.forEach((r, i) => {
+      const b = document.createElement('button'), mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = text; b.append(e); };
+      mk('b', '', r.toll ? 'ขึ้นทางด่วน' : 'ไม่ขึ้นทางด่วน');
+      mk('span', 't', fmtT(r.dur));
+      mk('small', '', fmtD(r.dist) + (r.traffic && r.delay > 60 ? ` · ติด +${fmtT(r.delay)}` : ''));
+      if (r.via) mk('small', 'via', 'ผ่าน ' + r.via);
+      if (i === 0) mk('i', 'badge', 'เร็วสุด');
+      if (r === route) b.className = 'on';
+      b.onclick = () => pickRoute(i);
+      row.append(b);
+    });
+    const on = row.querySelector('.on'); if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   }
   liftControls();
   if (fit) {
-    const all = route.coords.concat(altRoute ? altRoute.coords : []);
+    const all = routeList.flatMap(r => r.coords);
     const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
     map.fitBounds(b, { padding: { top: 90, bottom: $('nav').offsetHeight + 50, left: 50, right: 50 }, pitch: 0, bearing: 0 });
   }
 }
-$('optToll').onclick = () => { avoidToll = false; store.set('opt_avoidToll', false); showPreview(false); };
-$('optFree').onclick = () => { avoidToll = true; store.set('opt_avoidToll', true); showPreview(false); };
+function pickRoute(i) {
+  if (navOn || !routeList[i]) return;
+  route = routeList[i]; avoidToll = !route.toll; store.set('opt_avoidToll', avoidToll);
+  showPreview(false);
+}
 async function onGo() {
   if (!dest) return;
   if (!route) {                       // ขั้นที่ 1: หาเส้นทาง + แสดงภาพรวม
@@ -839,7 +863,7 @@ async function onGo() {
     return;
   }
   // ขั้นที่ 2: เริ่มนำทาง
-  navOn = true; altRoute = null; drawRoute(); document.body.classList.add('navactive');
+  navOn = true; drawRoute(); document.body.classList.add('navactive');
   follow = true; turnAt = null; $('recenter').style.display = 'none';
   navLook(true);
   say('เริ่มนำทาง ไป ' + dest.label);
@@ -867,7 +891,7 @@ async function onPos(g) {
   if (s.off > 60) {                   // หลุดเส้นทาง → คำนวณใหม่
     if (++offCount >= 3 && Date.now() - lastReroute > 10000) {
       lastReroute = Date.now(); offCount = 0;
-      try { route = await getRoute(p, dest.p, avoidToll && !!routeOpts.free); drawRoute(); lastSpoken = null; say('คำนวณเส้นทางใหม่'); } catch {}
+      try { const noToll = !route.toll; route = (await getRoutes(p, dest.p, noToll, 0))[0]; drawRoute(); lastSpoken = null; say('คำนวณเส้นทางใหม่'); } catch {}
     }
     if (!navOn) return;
   } else offCount = 0;
@@ -909,6 +933,13 @@ $('recenter').onclick = () => {
   follow = true; $('recenter').style.display = 'none';
   if (mePos) map.easeTo({ center: mePos, bearing: car.hTo, pitch: NAV_CAM.pitch, zoom: NAV_CAM.zoom, offset: [0, innerHeight * 0.24], duration: 600 });
 };
+
+// แตะเส้นทางสีเทาบนแผนที่ = เลือกเส้นนั้น
+map.on('click', e => {
+  if (navOn || !map.getLayer('route-alt')) return;
+  const pt = e.point, f = map.queryRenderedFeatures([[pt.x - 12, pt.y - 12], [pt.x + 12, pt.y + 12]], { layers: ['route-alt'] })[0];
+  if (f) pickRoute(f.properties.idx);
+});
 
 // กดค้างบนแผนที่ (หรือคลิกขวา) = เลือกจุดนั้นเป็นปลายทาง
 let pressTimer;
