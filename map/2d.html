@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>My Map — แผนที่ + จราจรสด</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  body { font-family: system-ui, "Noto Sans Thai", sans-serif; font-size: 14px; }
+  .panel {
+    position: absolute; z-index: 1000; top: 10px; right: 10px;
+    background: #fff; color: #111; border-radius: 10px; padding: 10px 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3); min-width: 190px;
+  }
+  .panel label { display: block; margin: 6px 0; cursor: pointer; }
+  .panel select, .panel button, .panel input[type=text] {
+    font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid #bbb; background: #fff; color: #111;
+  }
+  .panel button { cursor: pointer; width: 100%; margin-top: 6px; }
+  .muted { color: #666; font-size: 12px; margin-top: 6px; }
+  .legend { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .legend i { flex: 1; }
+  .legend-text { display: flex; justify-content: space-between; font-size: 11px; color: #666; }
+  #keyBox {
+    position: absolute; z-index: 2000; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  #keyBox .card { background: #fff; color: #111; border-radius: 12px; padding: 18px; max-width: 420px; width: 100%; }
+  #keyBox input { width: 100%; box-sizing: border-box; padding: 9px; font: inherit; border: 1px solid #bbb; border-radius: 6px; }
+  #keyBox button { margin-top: 10px; padding: 9px 14px; font: inherit; border: 0; border-radius: 6px; background: #1668e3; color: #fff; cursor: pointer; }
+  #keyBox ol { padding-left: 20px; line-height: 1.6; }
+  #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel">
+  <label><input type="checkbox" id="flow" checked> จราจรสด (ความเร็ว)</label>
+  <label><input type="checkbox" id="incidents" checked> อุบัติเหตุ / ปิดถนน</label>
+  <label>แผนที่
+    <select id="style">
+      <option value="main">สว่าง</option>
+      <option value="night">มืด</option>
+    </select>
+  </label>
+  <button id="locate">📍 ตำแหน่งของฉัน</button>
+  <button id="changeKey">🔑 เปลี่ยน API key</button>
+  <div class="legend"><i style="background:#2ecc40"></i><i style="background:#ffdc00"></i><i style="background:#ff851b"></i><i style="background:#c0392b"></i><i style="background:#6b1a1a"></i></div>
+  <div class="legend-text"><span>คล่อง</span><span>ติดหนัก</span></div>
+  <div class="muted" id="status">—</div>
+  <div id="err"></div>
+</div>
+
+<div id="keyBox">
+  <div class="card">
+    <h3 style="margin-top:0">ใส่ TomTom API key</h3>
+    <ol>
+      <li>สมัครฟรีที่ developer.tomtom.com (ไม่ต้องใช้บัตรเครดิต)</li>
+      <li>คัดลอก key จากหน้า Dashboard → Keys</li>
+      <li>วางด้านล่าง — key เก็บไว้ในเบราว์เซอร์เครื่องนี้เท่านั้น</li>
+    </ol>
+    <input id="keyInput" type="text" placeholder="API key" autocomplete="off">
+    <button id="saveKey">บันทึก</button>
+  </div>
+</div>
+
+<script>
+// ---------- ตั้งค่า (แก้ได้ตามใจ) ----------
+const CONFIG = {
+  center: [13.7563, 100.5018],   // กรุงเทพฯ
+  zoom: 12,
+  refreshSeconds: 60,            // รีเฟรชข้อมูลจราจรทุกกี่วินาที
+  flowStyle: 'relative0',        // relative0 | relative | absolute | reduced-sensitivity
+  incidentStyle: 's3',           // s1 | s2 | s3 | night
+};
+// -------------------------------------------
+
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const $ = id => document.getElementById(id);
+let key = store.get('tomtomKey', '');
+let stamp = Date.now();
+
+const saved = JSON.parse(store.get('view', 'null'));
+const map = L.map('map', { zoomControl: false })
+  .setView(saved ? saved.c : CONFIG.center, saved ? saved.z : CONFIG.zoom);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.control.scale({ imperial: false }).addTo(map);
+map.attributionControl.addAttribution('© TomTom');
+map.on('moveend', () => {
+  const c = map.getCenter();
+  store.set('view', JSON.stringify({ c: [c.lat, c.lng], z: map.getZoom() }));
+});
+
+const T = 'https://api.tomtom.com';
+const baseUrl = () => `${T}/map/1/tile/basic/${$('style').value}/{z}/{x}/{y}.png?key=${key}`;
+const flowUrl = () => `${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`;
+const incUrl  = () => `${T}/traffic/map/4/tile/incidents/${CONFIG.incidentStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`;
+
+const base = L.tileLayer('', { maxZoom: 22, maxNativeZoom: 22 });
+const flow = L.tileLayer('', { maxZoom: 22, opacity: 0.85, zIndex: 5 });
+const inc  = L.tileLayer('', { maxZoom: 22, zIndex: 6 });
+
+base.on('tileerror', () => {
+  $('err').style.display = 'block';
+  $('err').textContent = 'โหลดแผนที่ไม่ได้ — ตรวจ API key หรืออินเทอร์เน็ต';
+});
+base.on('tileload', () => { $('err').style.display = 'none'; });
+
+function apply() {
+  if (!key) { $('keyBox').style.display = 'flex'; return; }
+  base.setUrl(baseUrl()); base.addTo(map);
+  flow.setUrl(flowUrl()); inc.setUrl(incUrl());
+  $('flow').checked ? flow.addTo(map) : flow.remove();
+  $('incidents').checked ? inc.addTo(map) : inc.remove();
+  $('status').textContent = 'อัปเดตล่าสุด ' + new Date(stamp).toLocaleTimeString('th-TH');
+}
+
+function refreshTraffic() {
+  if (!key || document.hidden) return;
+  stamp = Date.now();
+  flow.setUrl(flowUrl()); inc.setUrl(incUrl());
+  $('status').textContent = 'อัปเดตล่าสุด ' + new Date(stamp).toLocaleTimeString('th-TH');
+}
+setInterval(refreshTraffic, CONFIG.refreshSeconds * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
+
+for (const id of ['flow', 'incidents', 'style']) {
+  $(id).checked !== undefined && ($(id).checked = store.get('opt_' + id, 'true') === 'true');
+  if (id === 'style') $(id).value = store.get('opt_style', 'main');
+  $(id).addEventListener('change', () => {
+    store.set('opt_' + id, id === 'style' ? $(id).value : $(id).checked);
+    apply();
+  });
+}
+
+let me;
+$('locate').onclick = () => map.locate({ setView: true, maxZoom: 15, enableHighAccuracy: true });
+map.on('locationfound', e => {
+  if (me) me.remove();
+  me = L.circleMarker(e.latlng, { radius: 8, color: '#fff', weight: 3, fillColor: '#1668e3', fillOpacity: 1 }).addTo(map);
+});
+map.on('locationerror', () => alert('ขอตำแหน่งไม่ได้ (ต้องอนุญาต location และเปิดผ่าน https หรือ localhost)'));
+
+$('changeKey').onclick = () => { $('keyInput').value = key; $('keyBox').style.display = 'flex'; };
+$('saveKey').onclick = () => {
+  const v = $('keyInput').value.trim();
+  if (!v) return;
+  key = v; store.set('tomtomKey', v);
+  $('keyBox').style.display = 'none';
+  apply();
+};
+$('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveKey').click(); });
+
+apply();
+</script>
+</body>
+</html>
