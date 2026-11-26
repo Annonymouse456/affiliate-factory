@@ -10,7 +10,10 @@ import java.io.ByteArrayOutputStream;
  */
 final class Speech {
 
-    private static final String[] LISTEN_MODELS = {"gpt-4o-mini-transcribe", "whisper-1"};
+    // The larger model first: it copes better with a noisy cabin. The others are fallbacks for accounts without it.
+    private static final String[] LISTEN_MODELS = {"gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1"};
+    // Tells the model what kind of speech to expect, which steadies it when words are half lost in noise.
+    private static final String HINT = "คำสั่งเสียงภาษาไทยจากคนขับรถ พูดกับผู้ช่วยในรถยนต์ เช่น นำทางไป ปั๊มน้ำมันใกล้สุด ข้างหน้ารถติดไหม เปิดเพลง ข้ามเพลง ตอนนี้กี่โมง";
     private static final String[] SPEAK_MODELS = {"gpt-4o-mini-tts", "tts-1"};
 
     static final class Failure extends Exception { Failure(String thaiReason) { super(thaiReason); } }
@@ -28,6 +31,7 @@ final class Speech {
             field(body, boundary, "model", model);
             field(body, boundary, "language", "th");
             field(body, boundary, "response_format", "json");
+            field(body, boundary, "prompt", HINT);
             body.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"speech.wav\"\r\nContent-Type: audio/wav\r\n\r\n").getBytes(Http.UTF8));
             body.write(wav);
             body.write(("\r\n--" + boundary + "--\r\n").getBytes(Http.UTF8));
