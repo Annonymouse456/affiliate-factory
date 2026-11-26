@@ -84,6 +84,7 @@ public class OverlayService extends Service {
     private IconView playD;
     private OrbView orbD, orbC;
     private EqView eq;
+    private DiscView disc;
     private TextView themeKey, voiceKey;
     private LinearLayout settings;
     private TextView toneKey, bootKey, roadKey, briefKey, pathKey;
@@ -321,35 +322,42 @@ public class OverlayService extends Service {
         // music from the phone
         float top = u * 64, tall = H - top - u * 3;
         LinearLayout music = new LinearLayout(this);
-        music.setOrientation(LinearLayout.VERTICAL);
+        music.setGravity(Gravity.CENTER_VERTICAL);
         music.setBackground(plate(u * 3.5f));
-        music.setPadding(unit * 3, unit * 2, unit * 3, unit * 2);
+        music.setPadding(unit * 3, unit * 2, unit * 2, unit * 2);
+        disc = new DiscView(this, t);                              // the cover, turning like a record while the music plays
+        LinearLayout.LayoutParams discAt = new LinearLayout.LayoutParams(unit * 27, unit * 27);
+        discAt.rightMargin = unit * 3;
+        music.addView(disc, discAt);
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        eq = new EqView(this, t);
-        LinearLayout.LayoutParams eqAt = new LinearLayout.LayoutParams(unit * 8, unit * 8);
-        eqAt.rightMargin = unit * 3;
-        head.addView(eq, eqAt);
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
-        titleD = text("ยังไม่มีเพลงจากมือถือ", 3.9f, INK, true);
+        titleD = text("ยังไม่มีเพลงจากมือถือ", 3.7f, INK, true);
         titleD.setSingleLine(true);
         titleD.setEllipsize(TextUtils.TruncateAt.MARQUEE);
         titleD.setMarqueeRepeatLimit(-1);
         titleD.setSelected(true);
         words.addView(titleD);
-        artistD = text("ต่อบลูทูธแล้วเปิดเพลงได้เลย", 2.9f, INK_DIM, false);
+        artistD = text("ต่อบลูทูธแล้วเปิดเพลงได้เลย", 2.8f, INK_DIM, false);
         artistD.setSingleLine(true);
         artistD.setEllipsize(TextUtils.TruncateAt.END);
         words.addView(artistD);
         head.addView(words, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        music.addView(head);
+        eq = new EqView(this, t);
+        LinearLayout.LayoutParams eqAt = new LinearLayout.LayoutParams(unit * 7, unit * 7);
+        eqAt.leftMargin = unit * 2;
+        head.addView(eq, eqAt);
+        info.addView(head);
         LinearLayout keys = new LinearLayout(this);
         keys.setGravity(Gravity.CENTER);
-        music.addView(keys, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
-        roundKey(keys, IconView.PREVIOUS, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 13, null);
-        playD = roundKey(keys, IconView.PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 16, t);
-        roundKey(keys, IconView.NEXT, KeyEvent.KEYCODE_MEDIA_NEXT, 13, null);
+        info.addView(keys, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        roundKey(keys, IconView.PREVIOUS, KeyEvent.KEYCODE_MEDIA_PREVIOUS, 12, null);
+        playD = roundKey(keys, IconView.PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, 15, t);
+        roundKey(keys, IconView.NEXT, KeyEvent.KEYCODE_MEDIA_NEXT, 12, null);
+        music.addView(info, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1));
         place(dash, music, u * 3, top, W * 0.60f - u * 3, tall);
 
         // the co-pilot
@@ -417,7 +425,7 @@ public class OverlayService extends Service {
         if (blend != null) k.setBlend(blend);
         k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { NowPlaying.get().press(keyCode); } });
         LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(unit * sizeUnits, unit * sizeUnits);
-        at.setMargins(unit * 3, 0, unit * 3, 0);
+        at.setMargins(unit * 2, 0, unit * 2, 0);
         row.addView(k, at);
         return k;
     }
@@ -650,6 +658,8 @@ public class OverlayService extends Service {
                 if (!who.contentEquals(artistD.getText())) artistD.setText(who);
                 playD.setKind(Boolean.TRUE.equals(now.playing) ? IconView.PAUSE : IconView.PLAY);
                 eq.setPlaying(Boolean.TRUE.equals(now.playing));
+                disc.setPlaying(Boolean.TRUE.equals(now.playing));
+                disc.setCover(now.cover);
             } });
         }
     };
