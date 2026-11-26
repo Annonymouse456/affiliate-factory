@@ -365,6 +365,7 @@
 
   window.car = {
     fix: fix, go: go, clear: function () { clear(false); },
+    note: function (text) { say(text, 20); },
     config: function (k, colour, up) {
       var changed = k !== key;
       key = k || '';
