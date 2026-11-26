@@ -98,6 +98,7 @@ final class Assistant {
     /** The one button: start listening; while listening, finish the question; while speaking, be quiet. */
     void tap() {
         if (app == null) return;
+        if (CallWatch.inCall) { show(State.IDLE, "กำลังมีสายโทรศัพท์อยู่ ถาม AI ได้หลังวางสาย"); return; }
         if (state == State.LISTENING) { Recorder r = recorder; if (r != null) r.stop(); return; }
         if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); return; }
         if (state != State.IDLE) return;
@@ -124,9 +125,17 @@ final class Assistant {
         return waitedAnswer == null ? "รอคำตอบนานเกินไป" : waitedAnswer;
     }
 
+    /** A call is coming in: stop talking and stop listening at once. */
+    void quiet() {
+        Recorder r = recorder;
+        if (r != null) r.stop();
+        if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); }
+    }
+
     /** A question that is already text: the typed test, and the automatic road briefing. */
     void askText(final String question, final boolean aloud) {
         if (app == null || state != State.IDLE) return;
+        if (CallWatch.inCall && aloud) return;                    // no briefings or phone questions spoken over a call
         if (claudeKey(app).isEmpty()) { show(State.IDLE, "ยังไม่ได้ใส่คีย์ Claude"); return; }
         show(State.THINKING, "กำลังคิด…");
         worker.execute(new Runnable() { @Override public void run() { answer(question, aloud && !openAiKey(app).isEmpty()); } });
@@ -172,6 +181,7 @@ final class Assistant {
             if (a.problem == null && !briefing) remember(question, a.text);
             if (a.problem != null) { audio.abandonAudioFocus(null); show(State.IDLE, a.problem); return; }
             if (!aloud) { audio.abandonAudioFocus(null); show(State.IDLE, a.text); return; }
+            if (CallWatch.inCall) { audio.abandonAudioFocus(null); show(State.IDLE, a.text); return; }      // a call began while thinking: show, do not speak
             show(State.SPEAKING, a.text);
             speak(a.text, audio);
         } catch (Throwable e) {
