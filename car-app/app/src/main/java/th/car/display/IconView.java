@@ -25,6 +25,15 @@ public class IconView extends View {
         plate.setColor(plateColor);
     }
 
+    private int[] blend;
+
+    /** Fill the plate with a diagonal run of colours instead of one colour. */
+    void setBlend(int[] colours) { blend = colours; }
+
+    @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+        if (blend != null) plate.setShader(new android.graphics.LinearGradient(0, 0, w, h, blend, null, android.graphics.Shader.TileMode.CLAMP));
+    }
+
     void setKind(int k) { if (k != kind) { kind = k; invalidate(); } }
     void setPlate(int color) { if (plate.getColor() != color) { plate.setColor(color); invalidate(); } }
 
