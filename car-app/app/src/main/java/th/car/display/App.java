@@ -33,6 +33,41 @@ public class App extends Application {
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("car", Context.MODE_PRIVATE); }
 
+    // ---- second place to keep the keys, for a head unit whose app folder cannot be written ----
+    // The app's folder on shared storage. Less private than the normal place: on Android 8 other apps
+    // holding the storage permission can read it. Used only when the normal place fails.
+
+    private static java.io.File spareFile(Context c) {
+        java.io.File dir = c.getExternalFilesDir(null);
+        return dir == null ? null : new java.io.File(dir, "keys.txt");
+    }
+
+    static String spareKey(Context c, String name) {
+        try {
+            java.io.File f = spareFile(c);
+            if (f == null || !f.exists()) return "";
+            java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), "UTF-8"));
+            try { for (String line; (line = in.readLine()) != null; ) if (line.startsWith(name + "=")) return line.substring(name.length() + 1).trim(); } finally { in.close(); }
+        } catch (Throwable ignored) { }
+        return "";
+    }
+
+    /** Returns true when the key was written to the spare place. */
+    static boolean saveSpareKey(Context c, String name, String value) {
+        try {
+            java.io.File f = spareFile(c);
+            if (f == null) return false;
+            String other = name.equals("claudeKey") ? "openaiKey" : "claudeKey", kept = spareKey(c, other);
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            out.write((name + "=" + value + "\n" + (kept.isEmpty() ? "" : other + "=" + kept + "\n")).getBytes("UTF-8"));
+            out.getFD().sync();
+            out.close();
+            return true;
+        } catch (Throwable e) { return false; }
+    }
+
+    static void clearSpareKeys(Context c) { try { java.io.File f = spareFile(c); if (f != null) f.delete(); } catch (Throwable ignored) { } }
+
     /** Megabytes free on the head unit's internal storage, or -1 when it cannot be read. */
     static long freeMegabytes(Context c) {
         try { return new android.os.StatFs(android.os.Environment.getDataDirectory().getPath()).getAvailableBytes() / (1024 * 1024); } catch (Throwable e) { return -1; }

@@ -71,7 +71,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 2.5";
+    private static final String VERSION = "แอป 2.6";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -382,7 +382,7 @@ public class MainActivity extends Activity {
                 }
                 else if (which == 3) typeQuestion();
                 else if (which == 4) showInfo(Assistant.usage(MainActivity.this) + "\n\n" + App.installHistory(MainActivity.this) + "\nพื้นที่ว่างในจอ: " + App.freeMegabytes(MainActivity.this) + " MB · บันทึกข้อมูลแอป: " + (App.whyCannotSave(MainActivity.this) == null ? "ทำได้" : App.whyCannotSave(MainActivity.this)) + "\n\nภาพจากกล้อง เสียงพูด และตำแหน่งรถ จะถูกส่งไปที่ Anthropic และ OpenAI เฉพาะตอนที่คุณถาม AI หรือเปิดรายงานเส้นทางเอง");
-                else { p.edit().remove("claudeKey").remove("openaiKey").apply(); showInfo("ลบคีย์ออกจากจอนี้แล้ว"); }
+                else { p.edit().remove("claudeKey").remove("openaiKey").apply(); App.clearSpareKeys(MainActivity.this); Assistant.sessionClaudeKey = ""; Assistant.sessionOpenAiKey = ""; showInfo("ลบคีย์ออกจากจอนี้แล้ว"); }
             }
         }).show();
     }
@@ -424,7 +424,8 @@ public class MainActivity extends Activity {
         key = key == null ? "" : key.replaceAll("\\s", "");
         if (key.length() < 20) { showInfo("ข้อความสั้นเกินกว่าจะเป็นคีย์ ไม่ได้บันทึก"); return; }
         if (pref.equals("claudeKey")) Assistant.sessionClaudeKey = key; else Assistant.sessionOpenAiKey = key;
-        if (!App.prefs(this).edit().putString(pref, key).commit()) { showInfo("ใช้คีย์ได้ชั่วคราวจนกว่าจะปิดแอป แต่บันทึกถาวรไม่ได้\nสาเหตุ: " + App.whyCannotSave(this) + "\nพื้นที่ว่าง " + App.freeMegabytes(this) + " MB"); return; }
+        if (!App.prefs(this).edit().putString(pref, key).commit() && App.saveSpareKey(this, pref, key)) { showInfo("บันทึกคีย์ไว้ในที่เก็บสำรองของจอแล้ว (ลงท้าย " + key.substring(key.length() - 4) + ")"); return; }
+        if (!App.prefs(this).getString(pref, "").equals(key)) { showInfo("ใช้คีย์ได้ชั่วคราวจนกว่าจะปิดแอป แต่บันทึกถาวรไม่ได้\nสาเหตุ: " + App.whyCannotSave(this) + "\nพื้นที่ว่าง " + App.freeMegabytes(this) + " MB"); return; }
         showInfo("บันทึกคีย์แล้ว (ลงท้าย " + key.substring(key.length() - 4) + ")\nคีย์เก็บอยู่ในจอนี้เท่านั้น");
     }
 
