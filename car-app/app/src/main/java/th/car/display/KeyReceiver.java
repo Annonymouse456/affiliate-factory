@@ -102,10 +102,13 @@ final class KeyReceiver {
                 String summary = "";
                 if (claude.length() >= 20) { e.putString("claudeKey", claude); summary += "คีย์ Claude (ลงท้าย " + claude.substring(claude.length() - 4) + ") "; }
                 if (openai.length() >= 20) { e.putString("openaiKey", openai); summary += "คีย์ OpenAI (ลงท้าย " + openai.substring(openai.length() - 4) + ")"; }
-                e.apply();
-                saved = true;
-                message = "บันทึกลงจอรถแล้ว: " + summary.trim() + " ปิดหน้านี้ได้เลย";
-                done.saved(summary.trim());
+                if (e.commit()) {            // written to storage before we say so
+                    saved = true;
+                    message = "บันทึกลงจอรถแล้ว: " + summary.trim() + " ปิดหน้านี้ได้เลย";
+                    done.saved(summary.trim());
+                } else {
+                    message = "จอรถบันทึกคีย์ลงเครื่องไม่สำเร็จ พื้นที่ว่างเหลือ " + App.freeMegabytes(c) + " MB ลองลบแอปหรือไฟล์ที่ไม่ใช้บนจอรถแล้วส่งใหม่";
+                }
             }
         }
         String page = "<!doctype html><html lang=th><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>ส่งคีย์เข้าจอรถ</title>"
