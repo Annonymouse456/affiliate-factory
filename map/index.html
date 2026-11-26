@@ -9,6 +9,7 @@
 <title>My Map 3D — เมือง 3 มิติ + จราจรสด</title>
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
 <style>
   html, body, #map { height: 100%; margin: 0; }
   body { font-family: system-ui, "Noto Sans Thai", sans-serif; font-size: 14px; background: #10141c; }
@@ -146,6 +147,7 @@ const CONFIG = {
   lightStyle: 'https://tiles.openfreemap.org/styles/liberty',
   vectorTiles: 'https://tiles.openfreemap.org/planet',   // ข้อมูลตึกจาก OpenStreetMap
   defaultHeight: 9,              // ความสูง (ม.) ของตึกที่ OSM ไม่มีข้อมูลความสูง
+  car: { color: '#b9c2cc', screenPx: 110 },   // สีรถ และขนาดบนจอ (พิกเซล) — รถจะคงขนาดนี้ทุกระดับซูม
   building: {
     light: { low: '#dfe3ea', high: '#aab6c8', opacity: 0.9 },
     dark:  { low: '#26334a', high: '#4f7fc4', opacity: 0.92 },
@@ -472,8 +474,80 @@ function drawRoute() {
 }
 map.on('style.load', drawRoute);
 
-function showMe(p) {
+// ---- รถ 3D แทนจุดตำแหน่ง (three.js วาดลงบนแผนที่โดยตรง) ----
+function buildCar() {
+  const T3 = THREE, car = new T3.Group();
+  const paint = new T3.MeshStandardMaterial({ color: CONFIG.car.color, metalness: 0.55, roughness: 0.35 });
+  const glass = new T3.MeshStandardMaterial({ color: '#1d2733', metalness: 0.4, roughness: 0.15 });
+  const dark  = new T3.MeshStandardMaterial({ color: '#1a1a1a', roughness: 0.9 });
+  const chrome = new T3.MeshStandardMaterial({ color: '#d9dde2', metalness: 0.8, roughness: 0.25 });
+  // วาดเงารถด้านข้าง (x = ยาว, y = สูง) แล้วยืดออกตามความกว้าง
+  const slab = (pts, width, mat, bevel) => {
+    const sh = new T3.Shape(pts.map(([x, y]) => new T3.Vector2(x, y)));
+    const g = new T3.ExtrudeGeometry(sh, { depth: width - 2 * bevel, bevelEnabled: bevel > 0, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 3 });
+    g.translate(0, 0, -(width - 2 * bevel) / 2); g.rotateY(Math.PI / 2);     // หน้ารถหันไปทาง -z (ทิศเหนือ)
+    const m = new T3.Mesh(g, mat); car.add(m); return m;
+  };
+  slab([[-2.3, 0.42], [-2.32, 0.9], [-2.2, 1.0], [-1.5, 1.05], [1.1, 1.02], [2.05, 0.9], [2.3, 0.74], [2.33, 0.42]], 1.84, paint, 0.1);   // ตัวถัง
+  slab([[-1.55, 1.0], [-0.95, 1.44], [0.3, 1.44], [1.15, 1.0]], 1.58, glass, 0.06);                                                       // กระจกรอบคัน
+  slab([[-1.0, 1.43], [-0.92, 1.48], [0.27, 1.48], [0.36, 1.43]], 1.46, paint, 0.03);                                                      // หลังคา
+  slab([[-0.38, 1.0], [-0.36, 1.45], [-0.28, 1.45], [-0.26, 1.0]], 1.6, paint, 0.01);                                                      // เสากลาง
+  slab([[-2.36, 0.36], [-2.36, 0.52], [2.37, 0.52], [2.37, 0.36]], 1.7, dark, 0.02);                                                       // กันชนล่าง
+  const box = (w, h, d, mat, x, y, z) => { const m = new T3.Mesh(new T3.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); car.add(m); };
+  const head = new T3.MeshStandardMaterial({ color: '#ffffff', emissive: '#fff6d8', emissiveIntensity: 0.9 });
+  const tail = new T3.MeshStandardMaterial({ color: '#d21f1f', emissive: '#a00000', emissiveIntensity: 0.8 });
+  for (const sx of [-1, 1]) {
+    box(0.42, 0.14, 0.06, head, sx * 0.66, 0.8, -2.3);     // ไฟหน้า
+    box(0.4, 0.16, 0.06, tail, sx * 0.68, 0.88, 2.31);     // ไฟท้าย
+    box(0.1, 0.1, 0.2, paint, sx * 0.99, 1.08, -0.85);     // กระจกมองข้าง
+    for (const z of [-1.45, 1.38]) {                       // ล้อ
+      const tyre = new T3.Mesh(new T3.CylinderGeometry(0.36, 0.36, 0.26, 24), dark);
+      tyre.rotation.z = Math.PI / 2; tyre.position.set(sx * 0.84, 0.36, z); car.add(tyre);
+      const hub = new T3.Mesh(new T3.CylinderGeometry(0.22, 0.22, 0.02, 16), chrome);
+      hub.rotation.z = Math.PI / 2; hub.position.set(sx * 0.98, 0.36, z); car.add(hub);
+    }
+  }
+  box(0.9, 0.16, 0.05, dark, 0, 0.68, -2.33);              // กระจังหน้า
+  const shadow = new T3.Mesh(new T3.CircleGeometry(1, 32), new T3.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0.28, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.scale.set(1.25, 2.7, 1); shadow.position.y = 0.03; car.add(shadow);
+  return car;
+}
+const car = { ok: typeof THREE !== 'undefined', pos: null, from: null, to: null, h: 0, hFrom: 0, hTo: 0, t0: 0 };
+const carLayer = {
+  id: 'car3d', type: 'custom', renderingMode: '3d',
+  onAdd(m, gl) {
+    this.camera = new THREE.Camera(); this.scene = new THREE.Scene();
+    this.scene.add(new THREE.AmbientLight('#ffffff', 0.75));
+    const sun = new THREE.DirectionalLight('#ffffff', 0.9); sun.position.set(-3, 8, -4); this.scene.add(sun);
+    const fill = new THREE.DirectionalLight('#ffffff', 0.35); fill.position.set(4, 3, 6); this.scene.add(fill);
+    this.model = buildCar(); this.scene.add(this.model);
+    this.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
+    this.renderer.autoClear = false;
+  },
+  render(gl, matrix) {
+    if (!car.to) return;
+    const t = Math.min(1, (performance.now() - car.t0) / 1000);     // เลื่อนรถนุ่ม ๆ ระหว่างจุด GPS
+    car.pos = [car.from[0] + (car.to[0] - car.from[0]) * t, car.from[1] + (car.to[1] - car.from[1]) * t];
+    car.h = car.hFrom + (((car.hTo - car.hFrom) % 360 + 540) % 360 - 180) * t;
+    const mc = maplibregl.MercatorCoordinate.fromLngLat(car.pos, 0), s = mc.meterInMercatorCoordinateUnits();
+    const mpp = 40075016.686 * Math.cos(rad(car.pos[1])) / (512 * Math.pow(2, map.getZoom()));
+    const k = Math.max(1, CONFIG.car.screenPx * mpp / 4.7);          // ขยายรถให้เห็นชัดเมื่อซูมออก
+    const l = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z).scale(new THREE.Vector3(s * k, -s * k, s * k))
+      .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2)).multiply(new THREE.Matrix4().makeRotationY(-rad(car.h)));
+    this.camera.projectionMatrix = new THREE.Matrix4().fromArray(matrix).multiply(l);
+    this.renderer.resetState(); this.renderer.render(this.scene, this.camera);
+    if (t < 1) map.triggerRepaint();
+  },
+};
+if (car.ok) map.on('style.load', () => { try { if (!map.getLayer('car3d')) map.addLayer(carLayer); } catch { car.ok = false; } });
+
+function showMe(p, heading) {
   mePos = p;
+  if (car.ok) {
+    car.from = car.pos || p; car.to = p; car.t0 = performance.now();
+    car.hFrom = car.h; if (heading != null && !isNaN(heading)) car.hTo = heading;
+    map.triggerRepaint(); return;
+  }
   if (!meMarker) { const el = document.createElement('div'); el.className = 'me'; meMarker = new maplibregl.Marker({ element: el }).setLngLat(p).addTo(map); }
   else meMarker.setLngLat(p);
 }
@@ -592,7 +666,7 @@ function snap(p) {     // จุดบนเส้นทางที่ใกล
 }
 async function onPos(g) {
   const p = [g.coords.longitude, g.coords.latitude];
-  showMe(p);
+  showMe(p, g.coords.speed > 1 ? g.coords.heading : null);
   if (!navOn || !route) return;
   const s = snap(p);
   if (s.off > 60) {                   // หลุดเส้นทาง → คำนวณใหม่
@@ -615,6 +689,7 @@ async function onPos(g) {
 
   const c = route.coords, hd = g.coords.heading;
   const brg = (hd != null && !isNaN(hd) && g.coords.speed > 1) ? hd : bearingOf(c[s.i], c[Math.min(s.i + 1, c.length - 1)]);
+  car.hTo = brg;
   map.easeTo({ center: p, bearing: brg, pitch: CONFIG.pitch, zoom: 17, duration: 1000, easing: t => t });
 }
 
