@@ -7,8 +7,8 @@
 <meta name="apple-mobile-web-app-title" content="My Map">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>My Map 3D — เมือง 3 มิติ + จราจรสด</title>
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/three@0.149.0/build/three.min.js"></script>
 <style>
   html, body, #map { height: 100%; margin: 0; }
@@ -244,7 +244,7 @@ const map = new maplibregl.Map({
   zoom: saved.z ?? CONFIG.zoom,
   pitch: saved.p ?? CONFIG.pitch,
   bearing: saved.b ?? CONFIG.bearing,
-  maxPitch: 80,
+  maxPitch: 82,
   antialias: true,
 });
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
@@ -314,6 +314,47 @@ function decorate() {
   }
 }
 map.on('style.load', decorate);
+
+// ท้องฟ้า + หมอกที่เส้นขอบฟ้า + แสงเงาบนตึก ให้มุมมองเอียงดูมีมิติ
+function atmosphere() {
+  const dark = theme() === 'dark';
+  try {
+    map.setSky(dark
+      ? { 'sky-color': '#0a1424', 'horizon-color': '#22324f', 'fog-color': '#162033', 'sky-horizon-blend': 0.7, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55 }
+      : { 'sky-color': '#7db9ff', 'horizon-color': '#e6f0fb', 'fog-color': '#edf2f7', 'sky-horizon-blend': 0.7, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55 });
+    map.setLight({ anchor: 'viewport', color: '#ffffff', intensity: 0.45, position: [1.4, 215, 40] });
+  } catch {}
+}
+map.on('style.load', atmosphere);
+
+// โหมดนำทาง: ลดสิ่งรบกวนบนแผนที่ให้เหลือแต่ถนนกับเส้นทาง
+//  - ถนนทุกสายเป็นสีขาว (ไม่ให้สีถนนเดิมปนกับสีเส้นทาง/รถติด)
+//  - ซ่อนเส้นจราจรของถนนอื่น และไอคอนร้านค้า — รถติดดูได้จากสีบนเส้นทางของเราเอง
+//  - ตึกโปร่งขึ้น จะได้เห็นเส้นทางที่อยู่หลังตึก
+let lookSaved = null;
+function navLook(on) {
+  if (on && !lookSaved) {
+    lookSaved = [];
+    const set = (id, prop, val, layout) => { try {
+      lookSaved.push([id, prop, layout ? map.getLayoutProperty(id, prop) : map.getPaintProperty(id, prop), layout]);
+      layout ? map.setLayoutProperty(id, prop, val) : map.setPaintProperty(id, prop, val);
+    } catch {} };
+    for (const l of map.getStyle().layers) {
+      const sl = l['source-layer'];
+      if (l.type === 'line' && sl === 'transportation' && !/rail|path|pier|ferry|aeroway|track/.test(l.id))
+        set(l.id, 'line-color', /casing|outline/.test(l.id) ? '#c3ccd8' : '#ffffff');
+      else if (l.type === 'symbol' && sl === 'poi') set(l.id, 'visibility', 'none', true);
+      else if (l.type === 'background') set(l.id, 'background-color', '#e3e8ee');
+    }
+    if (map.getLayer('my-buildings')) set('my-buildings', 'fill-extrusion-opacity', 0.7);
+    for (const id of ['flow', 'inc']) if (map.getLayer(id)) set(id, 'visibility', 'none', true);
+  } else if (!on && lookSaved) {
+    for (const [id, prop, old, layout] of lookSaved.reverse()) { try {
+      layout ? map.setLayoutProperty(id, prop, old || 'visible') : map.setPaintProperty(id, prop, old === undefined ? null : old);
+    } catch {} }
+    lookSaved = null;
+  }
+}
 
 function showStamp() { $('status').textContent = 'จราจรอัปเดต ' + new Date(stamp).toLocaleTimeString('th-TH'); }
 function refreshTraffic() {
@@ -460,6 +501,7 @@ const fmtD = m => m < 1000 ? Math.max(10, Math.round(m / 10) * 10) + ' ม.' : (
 const fmtT = s => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m + ' นาที' : Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที'; };
 
 let turnAt = null, follow = true;
+const NAV_CAM = { pitch: 70, zoom: 18 };     // มุมกล้องตอนนำทาง: ก้มต่ำ เห็นเส้นขอบฟ้าและทางข้างหน้า
 let altRoute = null, routeOpts = {}, avoidToll = store.get('opt_avoidToll', 'false') === 'true';
 let dest = null, route = null, navOn = false, watchId = null, mePos = null, meMarker = null;
 let offCount = 0, lastReroute = 0, lastSpoken = null, wakeLock = null;
@@ -557,15 +599,29 @@ function drawRoute() {
   const before = map.getLayer('my-buildings') ? 'my-buildings' : undefined;
   const lay = { 'line-cap': 'round', 'line-join': 'round' };
   const add = (id, kind, paint) => map.addLayer({ id, type: 'line', source: 'route', layout: lay, filter: ['==', ['get', 'kind'], kind], paint }, before);
-  add('route-alt', 'alt', { 'line-color': '#8a94a6', 'line-width': 6, 'line-opacity': 0.8 });
-  const wd = k => ['interpolate', ['linear'], ['zoom'], 8, 6 * k, 15, 8 * k, 18, 15 * k];
-  add('route-case', 'main', { 'line-color': '#0b3d91', 'line-width': wd(1.45) });
-  add('route', 'main', { 'line-color': '#3d8bff', 'line-width': wd(1) });
+add('route-alt', 'alt', { 'line-color': '#8a94a6', 'line-width': 6, 'line-opacity': 0.8 });
+  // เส้นทางกว้างเท่าถนนเมื่อซูมใกล้ มีแสงเรืองรอบ ๆ และลูกศรสีขาวบอกทิศวิ่ง
+  const wd = k => ['interpolate', ['exponential', 1.6], ['zoom'], 8, 6 * k, 14, 8 * k, 17, 16 * k, 19, 34 * k];
+  add('route-glow', 'main', { 'line-color': '#2f80ff', 'line-width': wd(2.1), 'line-opacity': 0.22, 'line-blur': 8 });
+  add('route-case', 'main', { 'line-color': '#0b3d91', 'line-width': wd(1.28) });
+  add('route', 'main', { 'line-color': '#2f80ff', 'line-width': wd(1) });
   add('route-jam', 'jam', { 'line-color': JAM, 'line-width': wd(1) });
   add('route-turn-case', 'turn', { 'line-color': '#0b3d91', 'line-width': wd(1) });
-  add('route-turn', 'turn', { 'line-color': '#ffffff', 'line-width': wd(0.6) });
+  add('route-turn', 'turn', { 'line-color': '#ffffff', 'line-width': wd(0.62) });
+  if (!map.hasImage('chev')) {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 48;
+    const x = cv.getContext('2d'); x.strokeStyle = '#fff'; x.lineWidth = 8; x.lineCap = 'round'; x.lineJoin = 'round';
+    x.beginPath(); x.moveTo(16, 8); x.lineTo(34, 24); x.lineTo(16, 40); x.stroke();
+    map.addImage('chev', x.getImageData(0, 0, 48, 48), { pixelRatio: 2 });
+  }
+  map.addLayer({ id: 'route-chev', type: 'symbol', source: 'route', minzoom: 14, filter: ['==', ['get', 'kind'], 'main'],
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': ['interpolate', ['linear'], ['zoom'], 14, 50, 19, 110], 'icon-image': 'chev',
+      'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.45, 17, 0.8, 19, 1.5], 'icon-allow-overlap': true, 'icon-ignore-placement': true,
+      'icon-rotation-alignment': 'map', 'icon-pitch-alignment': 'map' },
+    paint: { 'icon-opacity': 0.9 } }, before);
 }
 map.on('style.load', drawRoute);
+map.on('style.load', () => { if (navOn) { lookSaved = null; navLook(true); } });
 
 // ---- รถ 3D แทนจุดตำแหน่ง (three.js วาดลงบนแผนที่โดยตรง) ----
 function buildCar() {
@@ -646,7 +702,8 @@ const carLayer = {
     this.renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
     this.renderer.autoClear = false;
   },
-  render(gl, matrix) {
+  render(gl, args) {
+    const matrix = args.defaultProjectionData ? args.defaultProjectionData.mainMatrix : args;
     if (!car.to) return;
     const t = Math.min(1, (performance.now() - car.t0) / 1000);     // เลื่อนรถนุ่ม ๆ ระหว่างจุด GPS
     car.pos = [car.from[0] + (car.to[0] - car.from[0]) * t, car.from[1] + (car.to[1] - car.from[1]) * t];
@@ -707,7 +764,7 @@ function setDest(p, label) {
   sheet(label, 'แตะปุ่มเพื่อหาเส้นทางจากตำแหน่งของคุณ', '🧭 เส้นทางไปที่นี่');
 }
 function closeNav() {
-  navOn = false; turnAt = null; $('recenter').style.display = 'none';
+  navOn = false; turnAt = null; $('recenter').style.display = 'none'; navLook(false);
   route = null; altRoute = null; routeOpts = {}; dest = null; drawRoute();
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
@@ -784,6 +841,7 @@ async function onGo() {
   // ขั้นที่ 2: เริ่มนำทาง
   navOn = true; altRoute = null; drawRoute(); document.body.classList.add('navactive');
   follow = true; turnAt = null; $('recenter').style.display = 'none';
+  navLook(true);
   say('เริ่มนำทาง ไป ' + dest.label);
   if (mePos) onPos({ coords: { longitude: mePos[0], latitude: mePos[1], heading: null, speed: 0 } });   // แสดงผลทันทีไม่ต้องรอ GPS
   try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
@@ -833,7 +891,7 @@ async function onPos(g) {
   const c = route.coords, hd = g.coords.heading;
   const brg = (hd != null && !isNaN(hd) && g.coords.speed > 1) ? hd : bearingOf(c[s.i], c[Math.min(s.i + 1, c.length - 1)]);
   car.hTo = brg;
-  if (follow) map.easeTo({ center: p, bearing: brg, pitch: 62, zoom: 17.6, offset: [0, innerHeight * 0.2], duration: 1000, easing: t => t });
+  if (follow) map.easeTo({ center: p, bearing: brg, pitch: NAV_CAM.pitch, zoom: NAV_CAM.zoom, offset: [0, innerHeight * 0.24], duration: 1000, easing: t => t });
 }
 
 $('navGo').onclick = onGo;
@@ -849,7 +907,7 @@ for (const ev of ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart']) map.on
 });
 $('recenter').onclick = () => {
   follow = true; $('recenter').style.display = 'none';
-  if (mePos) map.easeTo({ center: mePos, bearing: car.hTo, pitch: 62, zoom: 17.6, offset: [0, innerHeight * 0.2], duration: 600 });
+  if (mePos) map.easeTo({ center: mePos, bearing: car.hTo, pitch: NAV_CAM.pitch, zoom: NAV_CAM.zoom, offset: [0, innerHeight * 0.24], duration: 600 });
 };
 
 // กดค้างบนแผนที่ (หรือคลิกขวา) = เลือกจุดนั้นเป็นปลายทาง
