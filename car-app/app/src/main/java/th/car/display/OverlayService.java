@@ -105,7 +105,15 @@ public class OverlayService extends Service {
     private String mapKeySent;
     private final java.util.concurrent.LinkedBlockingQueue<String> mapAnswers = new java.util.concurrent.LinkedBlockingQueue<String>();
     private final android.os.Messenger mapIn = new android.os.Messenger(new Handler(android.os.Looper.getMainLooper()) {
-        @Override public void handleMessage(android.os.Message m) { if (m.what == MapService.RESULT) mapAnswers.offer(String.valueOf(m.getData().getString("json"))); }
+        @Override public void handleMessage(android.os.Message m) {
+            if (m.what == MapService.RESULT) mapAnswers.offer(String.valueOf(m.getData().getString("json")));
+            else if (m.what == MapService.STATUS) {
+                String line = String.valueOf(m.getData().getString("line"));
+                NowPlaying.get().note("แผนที่: " + line);
+                if (line.contains("แทน")) note(line);            // the 3D map could not be used: say why on the screen
+                else if (line.contains("eased")) note("แผนที่ 3D วาดช้า ปิดตึก 3D ให้แล้ว ถ้ายังหน่วง แตะปุ่ม 3D มุมขวาบนเพื่อสลับเป็น 2D");
+            }
+        }
     });
     private final android.content.ServiceConnection mapLink = new android.content.ServiceConnection() {
         @Override public void onServiceConnected(android.content.ComponentName name, IBinder binder) {
@@ -380,6 +388,19 @@ public class OverlayService extends Service {
         noteD.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { note(null); } });
         place(dash, noteD, besideL, hole.top, besideW, hole.height());
 
+        // top right corner: switch between the full 3D map and the light flat one
+        final TextView mapMode = text(prefs.getBoolean("map3d", true) ? "3D" : "2D", 3f, INK, true);
+        mapMode.setGravity(Gravity.CENTER);
+        mapMode.setBackground(round(0x24FFFFFF, u * 2));
+        mapMode.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            boolean full = !prefs.getBoolean("map3d", true);
+            prefs.edit().putBoolean("map3d", full).apply();
+            mapMode.setText(full ? "3D" : "2D");
+            note(full ? "แผนที่ 3D ตัวเต็ม กำลังเปิด…" : "แผนที่ 2D แบบเบา");
+            syncMap();
+        } });
+        place(dash, mapMode, W - u * 2.5f - u * 9, hole.top, u * 9, u * 7);
+
         // the map's place: the map itself is a separate window laid over this, so these words show only until it arrives
         mapNote = text(mapGaveUp ? "แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ" : "กำลังเปิดแผนที่…", 3.2f, INK_DIM, false);
         mapNote.setGravity(Gravity.CENTER);
@@ -602,12 +623,13 @@ public class OverlayService extends Service {
     private void syncMap() {
         if (mapOut == null || mapAt == null) return;
         boolean want = dashShown && !cameraMode && !hidden && settings.getVisibility() != View.VISIBLE;
-        String key = mapKey(this) + "|" + theme()[0];
+        String key = mapKey(this) + "|" + theme()[0] + "|" + prefs.getBoolean("map3d", true);
         if (!key.equals(mapKeySent)) {             // traffic key or colours changed
             mapKeySent = key;
             Bundle b = new Bundle();
             b.putString("key", mapKey(this));
             b.putString("colour", String.format(Locale.US, "#%06X", theme()[0] & 0xFFFFFF));
+            b.putBoolean("full", prefs.getBoolean("map3d", true));
             toMap(MapService.CONFIG, b);
         }
         if (want == mapSeen) return;
