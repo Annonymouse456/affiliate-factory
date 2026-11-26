@@ -33,6 +33,9 @@
     } catch (e) { }
   }
   try { if (window.__key) localStorage.setItem('tomtomKey', window.__key); } catch (e) { }
+  // In the car the key comes from the app, sent from the phone. Never cover the map with the page's own "enter an API key" box:
+  // a head unit forgets that it was dismissed, so it would return on every start.
+  try { localStorage.setItem('keySkipped', '1'); } catch (e) { }
 
   window.addEventListener('error', function (e) {            // a page that fails before it is up will never draw: say so, and the app shows the light map instead
     if (!window.__up && H) H.fail(String((e && e.message) || 'error').slice(0, 140));
