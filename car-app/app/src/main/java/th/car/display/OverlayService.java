@@ -84,7 +84,7 @@ public class OverlayService extends Service {
     private IconView playD;
     private OrbView orbD, orbC;
     private EqView eq;
-    private TextView themeKey;
+    private TextView themeKey, voiceKey;
     private LinearLayout settings;
     private TextView toneKey, bootKey, roadKey, briefKey, pathKey;
     // camera layout
@@ -383,6 +383,7 @@ public class OverlayService extends Service {
         settings.setPadding(unit * 2, 0, unit * 2, unit);
         settings.setClickable(true);
         themeKey = option(settings, new Runnable() { @Override public void run() { prefs.edit().putInt("theme", (prefs.getInt("theme", 0) + 1) % THEMES.length).apply(); ui.post(new Runnable() { @Override public void run() { restyle(); } }); } });
+        voiceKey = option(settings, new Runnable() { @Override public void run() { Assistant.sessionFemale = !Assistant.femaleVoice(OverlayService.this); prefs.edit().putBoolean("aiFemale", Assistant.sessionFemale).apply(); } });
         toneKey = option(settings, new Runnable() { @Override public void run() { flip("tone", true); } });
         roadKey = option(settings, new Runnable() { @Override public void run() { flip("roads", true); if (!prefs.getBoolean("roads", true)) { roadName = ""; gauge.setRoad(""); } lookedUpAt = null; } });
         briefKey = option(settings, new Runnable() { @Override public void run() { flip("briefing", false); } });
@@ -393,7 +394,7 @@ public class OverlayService extends Service {
         optionIn(last, "เสร็จ", new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); } });
         settings.addView(last, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 8));
         settings.setVisibility(View.GONE);
-        place(dash, settings, u * 2, u * 2, column - u * 2, u * 59);
+        place(dash, settings, u * 2, u * 2, column - u * 2, H - u * 4);        // tall enough for every row: it covers the dial and part of the music card while open
     }
 
     /** Rebuild both layouts in the newly chosen colours, keeping whichever one is showing. */
@@ -563,6 +564,7 @@ public class OverlayService extends Service {
 
     private void labels() {
         themeKey.setText("ธีมสี:  " + THEME_NAMES[Math.abs(prefs.getInt("theme", 0)) % THEMES.length] + "  (แตะเพื่อเปลี่ยน)");
+        voiceKey.setText("เสียง AI:  " + (Assistant.femaleVoice(this) ? "ผู้หญิง" : "ผู้ชาย") + "  (แตะเพื่อเปลี่ยน)");
         toneKey.setText("เสียงเตือนเมื่อเร็วเกินป้าย:  " + (prefs.getBoolean("tone", true) ? "เปิด" : "ปิด"));
         roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
         briefKey.setText("AI รายงานเส้นทางเอง (ใช้โควตา):  " + (prefs.getBoolean("briefing", false) ? "เปิด" : "ปิด"));
