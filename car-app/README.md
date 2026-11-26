@@ -20,15 +20,17 @@ An APK signed with a different key will not install over an existing one; uninst
 ## How it is used on the head unit
 
 The head unit's dashcam is a vendor USB storage device, not a camera, so its picture cannot be read.
-"ซ้อนบนแอปกล้อง" starts `OverlayService`, which floats a card over the dashcam app's live view:
+"ซ้อนบนแอปกล้อง" starts `OverlayService`, which draws over the dashcam app in one of two layouts:
 
-- GPS speed, a tappable limit sign and a tone when over the limit
-- the track playing over Bluetooth with previous / play-pause / next (`NowPlaying` gathers it from
-  media sessions, the Bluetooth stack's media service, broadcasts and media notifications)
-- trip distance, moving time, top speed, heading, altitude and a rough 0–100 km/h time
-- a settings panel to shape the path band, and to start with the head unit (`BootReceiver`)
+- **Dashboard** covers the screen except for a window cut into it, through which the dashcam app
+  shows. Large speed, the limit sign, the road name, the phone's music with its controls, the
+  co-pilot button, a menu and a full-camera key. The window shows that region of the dashcam
+  picture as is; it is not a scaled-down copy of the whole frame.
+- **Camera** leaves the dashcam app filling the screen with a small strip (speed, limit, co-pilot,
+  back to dashboard) and the optional lane band.
 
-Drag the speed number to move the card; tap it to shrink or expand the card.
+The menu holds the over-speed tone, the map lookup, the automatic road briefing, starting with the
+head unit, and shaping the lane band. Button faces are drawn in code by `IconView`.
 
 ## Voice co-pilot
 

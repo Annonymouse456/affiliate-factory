@@ -9,7 +9,11 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
@@ -24,13 +28,13 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.text.TextUtils;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -38,55 +42,62 @@ import java.util.Calendar;
 import java.util.Locale;
 
 /**
- * Draws the speed card and the path band on top of whatever app is in front.
+ * The driving display, drawn on top of the head unit's own dashcam app.
  *
- * The dashcam on this kind of head unit is not a standard camera: only its own app can show the
- * picture. So instead of reading the camera, this floats the readouts over that app's live view.
+ * The dashcam here is not a standard camera: only its own app can show the picture. So this service
+ * never reads the camera. It floats over that app in one of two layouts:
  *
- * The card: speed and limit sign; the track playing over Bluetooth with its controls; trip figures;
- * and a settings panel for the path shape, the over-speed tone and starting with the head unit.
- * Drag the speed number to move the card, tap it to shrink or expand the card.
+ *   Dashboard — covers the screen except for a window cut into it, through which the dashcam app
+ *               shows. Big speed, the limit sign, the road name, the phone's music with its
+ *               controls, and the co-pilot button. Tap the camera window to switch to:
+ *   Camera    — the dashcam app fills the screen, with only a small strip (speed, limit, co-pilot,
+ *               back) and the optional lane band over it.
  */
 public class OverlayService extends Service {
 
     static volatile boolean running;
 
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
-    private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xD00A0F12, SIGN_RED = 0xFFE5483D;
+    private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFF9FB0B4, BASE = 0xF50B1014, PLATE = 0x1FFFFFFF, GLASS = 0xD90A0F12,
+            BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D, LISTEN = 0xFFE5483D, THINK = 0xFFE0A93B, TALK = 0xFF46DBA0;
     private static final String[] COMPASS = {"เหนือ", "ตอ.เฉียงเหนือ", "ตะวันออก", "ตอ.เฉียงใต้", "ใต้", "ตต.เฉียงใต้", "ตะวันตก", "ตต.เฉียงเหนือ"};
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private WindowManager windows;
+    private int unit, screenW, screenH, limit;
+    private boolean cameraMode, hidden;
+
+    // dashboard layout
+    private FrameLayout dash;
+    private TextView speedD, limitD, roadD, noteD, titleD, artistD, aiLabel;
+    private IconView playD, aiD;
+    private LinearLayout settings;
+    private TextView toneKey, bootKey, roadKey, briefKey, pathKey;
+    // camera layout
+    private LinearLayout strip, nudges;
+    private TextView speedC, limitC, noteC;
+    private IconView aiC;
     private PathView path;
-    private LinearLayout card, details, settings, musicRow;
-    private WindowManager.LayoutParams cardAt;
-    private LinearLayout musicBox;
-    private TextView askKey, answerText, briefKey;
-    private double briefedAtMetres = -1;
-    private TextView speedText, limitText, musicText, artistText, roadText, playKey, tripText, moreText, pathKey, toneKey, bootKey, roadKey;
+    private boolean dashShown, stripShown;
+
     private LocationManager locations;
     private ToneGenerator tone;
-    private int limit, unit;
 
     // live figures
     private float speedKmh = -1;
     private long lastFix;
     private Location lastPlace;
-    private double tripMetres;
+    private double tripMetres, briefedAtMetres = -1;
     private long movingMillis, lastFixClock;
     private float maxKmh;
-    private String heading = "";
-    private long launchAt = -1;             // moment the car left standstill, for the 0–100 time
-    private boolean armed;
-    private float sprintSeconds = -1;
+    private String heading = "", roadName = "";
     private long lastTone;
 
     // road name and posted limit from the map
     private Location lookedUpAt;
     private long lookedUpClock, roadWay, manualWay = -1;
     private boolean lookingUp;
-    private String roadNote = "";
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -98,10 +109,21 @@ public class OverlayService extends Service {
         limit = prefs.getInt("limit", 80);
         startForeground(1, notice());
         windows = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
-        unit = Math.max(4, Math.min(getResources().getDisplayMetrics().heightPixels, getResources().getDisplayMetrics().widthPixels) / 100);
+        DisplayMetrics dm = new DisplayMetrics();
+        windows.getDefaultDisplay().getRealMetrics(dm);
+        screenW = Math.max(dm.widthPixels, dm.heightPixels);
+        screenH = Math.min(dm.widthPixels, dm.heightPixels);
+        unit = Math.max(4, screenH / 100);
         try {
-            addPath();
-            addCard();
+            path = new PathView(this);
+            WindowManager.LayoutParams at = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, layer(),
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+            path.setVisibility(View.GONE);
+            windows.addView(path, at);
+            buildDashboard();
+            buildStrip();
+            labels();
+            setCameraMode(prefs.getBoolean("cameraMode", false));
         } catch (Throwable e) {          // e.g. the draw-over-apps permission was withdrawn
             stopSelf();
             return;
@@ -123,7 +145,8 @@ public class OverlayService extends Service {
         Assistant.get().detach(aiListener);
         NowPlaying.get().removeListener(musicChanged);
         try { if (locations != null) locations.removeUpdates(gps); } catch (Throwable ignored) { }
-        try { if (card != null) windows.removeView(card); } catch (Throwable ignored) { }
+        try { if (dashShown) windows.removeView(dash); } catch (Throwable ignored) { }
+        try { if (stripShown) windows.removeView(strip); } catch (Throwable ignored) { }
         try { if (path != null) windows.removeView(path); } catch (Throwable ignored) { }
         try { if (tone != null) tone.release(); } catch (Throwable ignored) { }
         super.onDestroy();
@@ -145,197 +168,236 @@ public class OverlayService extends Service {
     @SuppressWarnings("deprecation")
     private int layer() { return Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE; }
 
-    // ---------------------------------------------------------------- windows
+    // ---------------------------------------------------------------- the two layouts
 
-    /** Full-screen band that lets every touch through to the app underneath. */
-    private void addPath() {
-        path = new PathView(this);
-        path.setVisibility(prefs.getBoolean("pathOn", true) ? View.VISIBLE : View.GONE);
-        WindowManager.LayoutParams at = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, layer(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
-        windows.addView(path, at);
+    /** Swap layouts. Each is its own window, so the one not in use takes no touches from the dashcam app. */
+    private void setCameraMode(boolean camera) {
+        cameraMode = camera;
+        prefs.edit().putBoolean("cameraMode", camera).apply();
+        try {
+            if (camera) {
+                if (dashShown) { windows.removeView(dash); dashShown = false; }
+                if (!stripShown) {
+                    WindowManager.LayoutParams at = new WindowManager.LayoutParams(unit * 66, WindowManager.LayoutParams.WRAP_CONTENT, layer(),
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+                    at.gravity = Gravity.TOP | Gravity.START;
+                    at.x = unit * 2;
+                    at.y = unit * 2;
+                    windows.addView(strip, at);
+                    stripShown = true;
+                }
+            } else {
+                if (stripShown) { windows.removeView(strip); stripShown = false; }
+                if (!dashShown) {
+                    WindowManager.LayoutParams at = new WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, layer(),
+                            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
+                    windows.addView(dash, at);
+                    dashShown = true;
+                }
+                nudges.setVisibility(View.GONE);
+            }
+        } catch (Throwable ignored) { }
+        showPath();
     }
 
-    private void addCard() {
-        card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(round(GLASS, unit * 3.4f));
-        card.setPadding(unit * 3, unit, unit * 3, unit * 2);
+    /** The lane band belongs to the full camera picture only. */
+    private void showPath() { path.setVisibility(cameraMode && !hidden && prefs.getBoolean("pathOn", true) ? View.VISIBLE : View.GONE); }
 
-        // speed and limit sign
-        LinearLayout top = row();
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        speedText = text("--", 15, INK, true);
-        speedText.setIncludeFontPadding(false);
-        top.addView(speedText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        TextView kmh = text("กม./ชม.", 2.7f, INK_DIM, false);
-        kmh.setPadding(unit, unit * 6, unit * 2, 0);
-        top.addView(kmh);
-        limitText = text(String.valueOf(limit), 4.8f, 0xFF14181A, true);
-        limitText.setGravity(Gravity.CENTER);
-        GradientDrawable sign = new GradientDrawable();
-        sign.setShape(GradientDrawable.OVAL);
-        sign.setColor(0xFFF4F6F6);
-        sign.setStroke(Math.round(unit * 1.1f), SIGN_RED);
-        limitText.setBackground(sign);
-        limitText.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
-            int i = 0;
-            for (int n = 0; n < LIMITS.length; n++) if (LIMITS[n] == limit) i = n;
-            limit = LIMITS[(i + 1) % LIMITS.length];
-            limitText.setText(String.valueOf(limit));
-            prefs.edit().putInt("limit", limit).apply();
-            manualWay = roadWay;             // keep the hand-set value until the road changes
-        } });
-        top.addView(limitText, new LinearLayout.LayoutParams(unit * 12, unit * 12));
-        card.addView(top);
+    /** Dark surface with a rounded window cut out of it; whatever app is underneath shows through the window. */
+    private static class Surface extends FrameLayout {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path shape = new Path();
+        private final RectF hole;
+        private final float radius;
 
-        // road name from the map; hidden until one is known
-        roadText = text("", 3.1f, INK, false);
-        roadText.setSingleLine(true);
-        roadText.setEllipsize(TextUtils.TruncateAt.END);
-        roadText.setVisibility(View.GONE);
-        card.addView(roadText);
+        Surface(Context c, RectF hole, float radius) {
+            super(c);
+            this.hole = hole;
+            this.radius = radius;
+            setWillNotDraw(false);
+            paint.setColor(BASE);
+            edge.setStyle(Paint.Style.STROKE);
+            edge.setStrokeWidth(2);
+            edge.setColor(0x33FFFFFF);
+        }
 
-        // what is playing: title on its own line (scrolls when long), artist beside the controls
-        musicBox = new LinearLayout(this);
-        musicBox.setOrientation(LinearLayout.VERTICAL);
-        musicText = text("", 3.1f, INK, false);
-        musicText.setSingleLine(true);
-        musicText.setEllipsize(TextUtils.TruncateAt.MARQUEE);
-        musicText.setMarqueeRepeatLimit(-1);
-        musicText.setSelected(true);
-        musicBox.addView(musicText);
-        musicRow = row();
-        musicRow.setGravity(Gravity.CENTER_VERTICAL);
-        artistText = text("", 2.7f, INK_DIM, false);
-        artistText.setSingleLine(true);
-        artistText.setEllipsize(TextUtils.TruncateAt.END);
-        musicRow.addView(artistText, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        smallKey(musicRow, "\u25C0\u25C0", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PREVIOUS); } });
-        playKey = smallKey(musicRow, "\u25B6", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE); } });
-        smallKey(musicRow, "\u25B6\u25B6", new Runnable() { @Override public void run() { NowPlaying.get().press(KeyEvent.KEYCODE_MEDIA_NEXT); } });
-        musicBox.addView(musicRow);
-        musicBox.setVisibility(View.GONE);
-        card.addView(musicBox);
+        @Override protected void onDraw(Canvas c) {
+            shape.reset();
+            shape.setFillType(Path.FillType.EVEN_ODD);
+            shape.addRect(0, 0, getWidth(), getHeight(), Path.Direction.CW);
+            shape.addRoundRect(hole, radius, radius, Path.Direction.CW);
+            c.drawPath(shape, paint);
+            c.drawRoundRect(hole, radius, radius, edge);
+        }
+    }
 
-        // the co-pilot: one key to ask aloud, and its last words
-        LinearLayout ask = row();
-        askKey = key(ask, "ถาม AI", new Runnable() { @Override public void run() { Assistant.get().tap(); } });
-        card.addView(ask);
-        answerText = text("", 2.8f, INK, false);
-        answerText.setMaxLines(5);
-        answerText.setEllipsize(TextUtils.TruncateAt.END);
-        answerText.setPadding(0, unit, 0, 0);
-        answerText.setVisibility(View.GONE);
-        answerText.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { answerText.setVisibility(View.GONE); } });
-        card.addView(answerText);
+    private void place(FrameLayout parent, View v, float left, float top, float width, float height) {
+        FrameLayout.LayoutParams at = new FrameLayout.LayoutParams(width < 0 ? FrameLayout.LayoutParams.WRAP_CONTENT : Math.round(width), height < 0 ? FrameLayout.LayoutParams.WRAP_CONTENT : Math.round(height));
+        at.leftMargin = Math.round(left);
+        at.topMargin = Math.round(top);
+        parent.addView(v, at);
+    }
 
-        // trip figures and the main keys; tap the speed number to hide or show this part
-        details = new LinearLayout(this);
-        details.setOrientation(LinearLayout.VERTICAL);
-        tripText = text("", 2.7f, INK_DIM, false);
-        details.addView(tripText);
-        moreText = text("", 2.7f, INK_DIM, false);
-        details.addView(moreText);
-        LinearLayout keys = row();
-        pathKey = key(keys, "", new Runnable() { @Override public void run() { boolean on = path.getVisibility() != View.VISIBLE; path.setVisibility(on ? View.VISIBLE : View.GONE); prefs.edit().putBoolean("pathOn", on).apply(); labels(); } });
-        key(keys, "ตั้งค่า", new Runnable() { @Override public void run() { settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); } });
-        key(keys, "ปิด", new Runnable() { @Override public void run() { stopSelf(); } });
-        details.addView(keys);
+    private void buildDashboard() {
+        final float u = unit, W = screenW, H = screenH;
+        float column = W * 0.40f;                                   // left column: speed and words
+        RectF hole = new RectF(W * 0.415f, u * 4, W - u * 2.5f, u * 60);
+        dash = new Surface(this, hole, u * 3);
 
+        speedD = text("--", 26, INK, true);
+        speedD.setIncludeFontPadding(false);
+        place(dash, speedD, u * 3, u * 3, -1, -1);
+        limitD = sign(5.6f);
+        place(dash, limitD, column - u * 17, u * 5, u * 16, u * 16);
+        place(dash, text("กม./ชม.", 2.8f, INK_DIM, false), column - u * 15.5f, u * 22.5f, -1, -1);
+
+        roadD = text("", 3.4f, INK, false);
+        roadD.setSingleLine(true);
+        roadD.setEllipsize(TextUtils.TruncateAt.END);
+        place(dash, roadD, u * 3.5f, u * 37, column - u * 5, -1);
+        noteD = text("", 2.9f, INK_DIM, false);
+        noteD.setMaxLines(5);
+        noteD.setEllipsize(TextUtils.TruncateAt.END);
+        noteD.setLineSpacing(0, 1.12f);
+        place(dash, noteD, u * 3.5f, u * 42, column - u * 5, -1);
+
+        // the camera window: tap it for the full picture
+        View tap = new View(this);
+        tap.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
+        place(dash, tap, hole.left, hole.top, hole.width(), hole.height());
+        TextView hint = text("แตะเพื่อดูกล้องเต็มจอ", 2.5f, INK, false);
+        hint.setBackground(round(0x990A0F12, u * 2));
+        hint.setPadding(unit * 2, unit / 2, unit * 2, unit / 2);
+        place(dash, hint, hole.left + u * 1.5f, hole.bottom - u * 6, -1, -1);
+
+        // music from the phone
+        float top = u * 64, tall = H - top - u * 3;
+        LinearLayout music = new LinearLayout(this);
+        music.setOrientation(LinearLayout.VERTICAL);
+        music.setBackground(round(PLATE, u * 3));
+        music.setPadding(unit * 3, unit * 2, unit * 3, unit * 2);
+        titleD = text("ยังไม่มีเพลงจากมือถือ", 4f, INK, true);
+        titleD.setSingleLine(true);
+        titleD.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        titleD.setMarqueeRepeatLimit(-1);
+        titleD.setSelected(true);
+        music.addView(titleD);
+        artistD = text("ต่อบลูทูธแล้วเปิดเพลงได้เลย", 3f, INK_DIM, false);
+        artistD.setSingleLine(true);
+        artistD.setEllipsize(TextUtils.TruncateAt.END);
+        music.addView(artistD);
+        LinearLayout keys = new LinearLayout(this);
+        keys.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams keysAt = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1);
+        keysAt.topMargin = unit * 2;
+        music.addView(keys, keysAt);
+        mediaKey(keys, IconView.PREVIOUS, KeyEvent.KEYCODE_MEDIA_PREVIOUS);
+        playD = mediaKey(keys, IconView.PLAY, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE);
+        mediaKey(keys, IconView.NEXT, KeyEvent.KEYCODE_MEDIA_NEXT);
+        place(dash, music, u * 3, top, W * 0.60f - u * 3, tall);
+
+        // the co-pilot
+        LinearLayout ai = new LinearLayout(this);
+        ai.setOrientation(LinearLayout.VERTICAL);
+        ai.setGravity(Gravity.CENTER);
+        ai.setBackground(round(PLATE, u * 3));
+        aiD = new IconView(this, IconView.SPARK, 0xFFFFFFFF, BLUE, true);
+        ai.addView(aiD, new LinearLayout.LayoutParams(unit * 17, unit * 17));
+        aiLabel = text("ถาม AI", 3.1f, INK, false);
+        aiLabel.setGravity(Gravity.CENTER);
+        aiLabel.setPadding(0, unit, 0, 0);
+        ai.addView(aiLabel);
+        ai.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Assistant.get().tap(); } });
+        place(dash, ai, W * 0.615f, top, W * 0.27f, tall);
+
+        // menu and full-camera keys
+        float side = W * 0.90f, sideW = W - side - u * 2.5f, half = (tall - u * 2) / 2;
+        IconView menu = new IconView(this, IconView.MENU, INK, PLATE, false);
+        menu.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); } });
+        place(dash, menu, side, top, sideW, half);
+        IconView full = new IconView(this, IconView.EXPAND, INK, PLATE, false);
+        full.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
+        place(dash, full, side, top + half + u * 2, sideW, half);
+
+        // settings, over the left column when open
         settings = new LinearLayout(this);
         settings.setOrientation(LinearLayout.VERTICAL);
-        settings.addView(text("ปรับแถบเส้นทางให้ตรงเลน", 2.6f, INK_DIM, false));
-        LinearLayout a = row();
-        key(a, "◀ ซ้าย", nudge(-0.02f, 0, 0, 0));
-        key(a, "ขวา ▶", nudge(0.02f, 0, 0, 0));
-        key(a, "กว้าง", nudge(0, 0.03f, 0, 0));
-        key(a, "แคบ", nudge(0, -0.03f, 0, 0));
-        settings.addView(a);
-        LinearLayout b = row();
-        key(b, "เอียง ◀", nudge(0, 0, -0.02f, 0));
-        key(b, "เอียง ▶", nudge(0, 0, 0.02f, 0));
-        key(b, "ยาว", nudge(0, 0, 0, 0.04f));
-        key(b, "สั้น", nudge(0, 0, 0, -0.04f));
-        settings.addView(b);
-        LinearLayout c = row();
-        toneKey = key(c, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("tone", !prefs.getBoolean("tone", true)).apply(); labels(); } });
-        bootKey = key(c, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("autostart", !prefs.getBoolean("autostart", false)).apply(); labels(); } });
-        settings.addView(c);
-        LinearLayout r = row();
-        roadKey = key(r, "", new Runnable() { @Override public void run() {
-            boolean on = !prefs.getBoolean("roads", true);
-            prefs.edit().putBoolean("roads", on).apply();
-            if (!on) { roadText.setVisibility(View.GONE); roadNote = ""; }
-            lookedUpAt = null;
-            labels();
-        } });
-        settings.addView(r);
-        LinearLayout ai = row();
-        briefKey = key(ai, "", new Runnable() { @Override public void run() { prefs.edit().putBoolean("briefing", !prefs.getBoolean("briefing", false)).apply(); labels(); } });
-        settings.addView(ai);
-        LinearLayout d = row();
-        key(d, "เริ่มทริปใหม่", new Runnable() { @Override public void run() { tripMetres = 0; movingMillis = 0; maxKmh = 0; sprintSeconds = -1; } });
-        settings.addView(d);
+        settings.setBackground(round(0xFF10181D, u * 3));
+        settings.setPadding(unit * 2, unit, unit * 2, unit * 2);
+        settings.setClickable(true);
+        toneKey = option(settings, new Runnable() { @Override public void run() { flip("tone", true); } });
+        roadKey = option(settings, new Runnable() { @Override public void run() { flip("roads", true); if (!prefs.getBoolean("roads", true)) { roadName = ""; roadD.setText(""); } lookedUpAt = null; } });
+        briefKey = option(settings, new Runnable() { @Override public void run() { flip("briefing", false); } });
+        bootKey = option(settings, new Runnable() { @Override public void run() { flip("autostart", false); } });
+        pathKey = option(settings, new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); prefs.edit().putBoolean("pathOn", true).apply(); setCameraMode(true); nudges.setVisibility(View.VISIBLE); } });
+        LinearLayout last = new LinearLayout(this);
+        optionIn(last, "ปิดจอซ้อน", new Runnable() { @Override public void run() { stopSelf(); } });
+        optionIn(last, "เสร็จ", new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); } });
+        settings.addView(last, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 9));
         settings.setVisibility(View.GONE);
-        details.addView(settings);
-        card.addView(details);
-        if (prefs.getBoolean("compact", false)) details.setVisibility(View.GONE);
-        labels();
-
-        cardAt = new WindowManager.LayoutParams(unit * 62, WindowManager.LayoutParams.WRAP_CONTENT, layer(),
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
-        cardAt.gravity = Gravity.TOP | Gravity.START;
-        cardAt.x = prefs.getInt("cardX", unit * 2);
-        cardAt.y = prefs.getInt("cardY", unit * 2);
-
-        final int slop = ViewConfiguration.get(this).getScaledTouchSlop();
-        speedText.setOnTouchListener(new View.OnTouchListener() {
-            float downX, downY; int startX, startY; boolean moved;
-            @Override public boolean onTouch(View v, MotionEvent e) {
-                switch (e.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN: downX = e.getRawX(); downY = e.getRawY(); startX = cardAt.x; startY = cardAt.y; moved = false; break;
-                    case MotionEvent.ACTION_MOVE:
-                        if (moved || Math.abs(e.getRawX() - downX) > slop || Math.abs(e.getRawY() - downY) > slop) {
-                            moved = true;
-                            cardAt.x = Math.max(0, startX + Math.round(e.getRawX() - downX));
-                            cardAt.y = Math.max(0, startY + Math.round(e.getRawY() - downY));
-                            try { windows.updateViewLayout(card, cardAt); } catch (Throwable ignored) { }
-                        }
-                        break;
-                    case MotionEvent.ACTION_UP:
-                        if (moved) prefs.edit().putInt("cardX", cardAt.x).putInt("cardY", cardAt.y).apply();
-                        else {                       // a tap: shrink to speed and music only, or expand again
-                            boolean compact = details.getVisibility() == View.VISIBLE;
-                            details.setVisibility(compact ? View.GONE : View.VISIBLE);
-                            prefs.edit().putBoolean("compact", compact).apply();
-                        }
-                        break;
-                    default: break;
-                }
-                return true;
-            }
-        });
-        windows.addView(card, cardAt);
+        place(dash, settings, u * 2, u * 2, column - u * 2, u * 59);
     }
 
-    private void labels() {
-        pathKey.setText(path.getVisibility() == View.VISIBLE ? "เส้นทาง: เปิด" : "เส้นทาง: ปิด");
-        toneKey.setText(prefs.getBoolean("tone", true) ? "เสียงเตือนเร็วเกิน: เปิด" : "เสียงเตือนเร็วเกิน: ปิด");
-        bootKey.setText(prefs.getBoolean("autostart", false) ? "เปิดเองตอนเปิดจอ: เปิด" : "เปิดเองตอนเปิดจอ: ปิด");
-        briefKey.setText(prefs.getBoolean("briefing", false) ? "AI รายงานเส้นทางเอง (ใช้โควตา): เปิด" : "AI รายงานเส้นทางเอง (ใช้โควตา): ปิด");
-        roadKey.setText(prefs.getBoolean("roads", true) ? "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): เปิด" : "ชื่อถนนและป้ายจากแผนที่ (ใช้เน็ต): ปิด");
+    /** The small strip shown over the full camera picture. */
+    private void buildStrip() {
+        strip = new LinearLayout(this);
+        strip.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setBackground(round(GLASS, unit * 3f));
+        row.setPadding(unit * 3, unit, unit * 2, unit);
+        speedC = text("--", 12, INK, true);
+        speedC.setIncludeFontPadding(false);
+        speedC.setMinWidth(unit * 17);
+        row.addView(speedC);
+        limitC = sign(3.8f);
+        LinearLayout.LayoutParams signAt = new LinearLayout.LayoutParams(unit * 11, unit * 11);
+        signAt.rightMargin = unit * 2;
+        row.addView(limitC, signAt);
+        aiC = new IconView(this, IconView.SPARK, 0xFFFFFFFF, BLUE, true);
+        aiC.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { Assistant.get().tap(); } });
+        LinearLayout.LayoutParams aiAt = new LinearLayout.LayoutParams(unit * 12, unit * 12);
+        aiAt.rightMargin = unit * 2;
+        row.addView(aiC, aiAt);
+        IconView back = new IconView(this, IconView.PANEL, INK, PLATE, false);
+        back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(false); } });
+        row.addView(back, new LinearLayout.LayoutParams(unit * 13, unit * 11));
+        strip.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        noteC = text("", 2.9f, INK, false);
+        noteC.setMaxLines(5);
+        noteC.setEllipsize(TextUtils.TruncateAt.END);
+        noteC.setBackground(round(GLASS, unit * 2.5f));
+        noteC.setPadding(unit * 2, unit, unit * 2, unit);
+        noteC.setVisibility(View.GONE);
+        noteC.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { noteC.setVisibility(View.GONE); } });
+        LinearLayout.LayoutParams noteAt = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        noteAt.topMargin = unit;
+        strip.addView(noteC, noteAt);
+
+        // shaping the lane band so it sits on the lane of this camera
+        nudges = new LinearLayout(this);
+        nudges.setOrientation(LinearLayout.VERTICAL);
+        nudges.setBackground(round(GLASS, unit * 2.5f));
+        nudges.setPadding(unit * 2, unit, unit, unit * 2);
+        nudges.addView(text("ปรับแถบเส้นทางให้ตรงเลน", 2.6f, INK_DIM, false));
+        LinearLayout a = new LinearLayout(this), b = new LinearLayout(this), c = new LinearLayout(this);
+        optionIn(a, "\u25C0 ซ้าย", nudge(-0.02f, 0, 0, 0)); optionIn(a, "ขวา \u25B6", nudge(0.02f, 0, 0, 0)); optionIn(a, "กว้าง", nudge(0, 0.03f, 0, 0)); optionIn(a, "แคบ", nudge(0, -0.03f, 0, 0));
+        optionIn(b, "เอียง \u25C0", nudge(0, 0, -0.02f, 0)); optionIn(b, "เอียง \u25B6", nudge(0, 0, 0.02f, 0)); optionIn(b, "ยาว", nudge(0, 0, 0, 0.04f)); optionIn(b, "สั้น", nudge(0, 0, 0, -0.04f));
+        optionIn(c, "ซ่อนแถบ", new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", false).apply(); showPath(); nudges.setVisibility(View.GONE); } });
+        optionIn(c, "เสร็จ", new Runnable() { @Override public void run() { nudges.setVisibility(View.GONE); } });
+        for (LinearLayout r : new LinearLayout[]{a, b, c}) nudges.addView(r, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 9));
+        nudges.setVisibility(View.GONE);
+        LinearLayout.LayoutParams nudgeAt = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        nudgeAt.topMargin = unit;
+        strip.addView(nudges, nudgeAt);
     }
 
     private Runnable nudge(final float centre, final float width, final float tilt, final float length) {
-        return new Runnable() { @Override public void run() { path.setVisibility(View.VISIBLE); prefs.edit().putBoolean("pathOn", true).apply(); path.nudge(centre, width, tilt, length); labels(); } };
+        return new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", true).apply(); showPath(); path.nudge(centre, width, tilt, length); } };
     }
 
-    private LinearLayout row() {
-        LinearLayout r = new LinearLayout(this);
-        r.setLayoutParams(new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        return r;
-    }
+    // ---------------------------------------------------------------- small builders
 
     private GradientDrawable round(int color, float radius) {
         GradientDrawable d = new GradientDrawable();
@@ -353,37 +415,92 @@ public class OverlayService extends Service {
         return t;
     }
 
-    private TextView key(LinearLayout row, String s, final Runnable action) {
-        TextView k = text(s, 2.6f, INK, false);
-        k.setGravity(Gravity.CENTER);
-        k.setSingleLine(true);
-        k.setBackground(round(0x33FFFFFF, unit * 2f));
-        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { try { action.run(); } catch (Throwable ignored) { } } });
-        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, unit * 9, 1);
-        at.setMargins(0, unit, unit, 0);
+    /** The round speed-limit sign; tap to step through the usual limits. */
+    private TextView sign(float sizeUnits) {
+        TextView t = text(String.valueOf(limit), sizeUnits, 0xFF14181A, true);
+        t.setGravity(Gravity.CENTER);
+        GradientDrawable d = new GradientDrawable();
+        d.setShape(GradientDrawable.OVAL);
+        d.setColor(0xFFF4F6F6);
+        d.setStroke(Math.round(unit * sizeUnits * 0.24f), SIGN_RED);
+        t.setBackground(d);
+        t.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            int i = 0;
+            for (int n = 0; n < LIMITS.length; n++) if (LIMITS[n] == limit) i = n;
+            setLimitNow(LIMITS[(i + 1) % LIMITS.length]);
+            manualWay = roadWay;             // keep the hand-set value until the road changes
+        } });
+        return t;
+    }
+
+    private void setLimitNow(int kmh) {
+        limit = kmh;
+        limitD.setText(String.valueOf(kmh));
+        limitC.setText(String.valueOf(kmh));
+        prefs.edit().putInt("limit", kmh).apply();
+    }
+
+    private IconView mediaKey(LinearLayout row, int kind, final int keyCode) {
+        IconView k = new IconView(this, kind, INK, PLATE, false);
+        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { NowPlaying.get().press(keyCode); } });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        at.rightMargin = unit * 2;
         row.addView(k, at);
         return k;
     }
 
-    private TextView smallKey(LinearLayout row, String s, final Runnable action) {
-        TextView k = text(s, 3f, INK, false);
-        k.setGravity(Gravity.CENTER);
-        k.setBackground(round(0x33FFFFFF, unit * 2f));
-        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { try { action.run(); } catch (Throwable ignored) { } } });
-        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(unit * 9, unit * 8);
-        at.setMargins(unit, 0, 0, 0);
-        row.addView(k, at);
+    private TextView option(LinearLayout column, final Runnable action) {
+        TextView k = text("", 2.7f, INK, false);
+        k.setGravity(Gravity.CENTER_VERTICAL);
+        k.setSingleLine(true);
+        k.setPadding(unit * 2, 0, unit * 2, 0);
+        k.setBackground(round(PLATE, unit * 2f));
+        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { try { action.run(); labels(); } catch (Throwable ignored) { } } });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 8);
+        at.topMargin = unit;
+        column.addView(k, at);
         return k;
+    }
+
+    private void optionIn(LinearLayout row, String label, final Runnable action) {
+        TextView k = text(label, 2.6f, INK, false);
+        k.setGravity(Gravity.CENTER);
+        k.setSingleLine(true);
+        k.setBackground(round(PLATE, unit * 2f));
+        k.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { try { action.run(); } catch (Throwable ignored) { } } });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        at.setMargins(0, unit, unit, 0);
+        row.addView(k, at);
+    }
+
+    private void flip(String pref, boolean byDefault) { prefs.edit().putBoolean(pref, !prefs.getBoolean(pref, byDefault)).apply(); }
+
+    private void labels() {
+        toneKey.setText("เสียงเตือนเมื่อเร็วเกินป้าย:  " + (prefs.getBoolean("tone", true) ? "เปิด" : "ปิด"));
+        roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
+        briefKey.setText("AI รายงานเส้นทางเอง (ใช้โควตา):  " + (prefs.getBoolean("briefing", false) ? "เปิด" : "ปิด"));
+        bootKey.setText("เปิดเองเมื่อเปิดจอ:  " + (prefs.getBoolean("autostart", false) ? "เปิด" : "ปิด"));
+        pathKey.setText("ปรับแถบเส้นทางบนภาพกล้อง  \u25B6");
+    }
+
+    /** Words under the speed: the co-pilot's last line when there is one, otherwise nothing. */
+    private void note(String line) {
+        noteD.setText(line == null ? "" : line);
+        noteD.setTextColor(INK);
+        noteC.setText(line == null ? "" : line);
+        noteC.setVisibility(line == null || line.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     // ---------------------------------------------------------------- co-pilot
 
     private final Assistant.Listener aiListener = new Assistant.Listener() {
         @Override public void changed(Assistant.State state, String line) {
-            if (askKey == null) return;
-            askKey.setText(state == Assistant.State.LISTENING ? "กำลังฟัง… (แตะเมื่อพูดจบ)" : state == Assistant.State.THINKING ? "กำลังคิด…" : state == Assistant.State.SPEAKING ? "กำลังพูด… (แตะเพื่อหยุด)" : "ถาม AI");
-            askKey.setBackground(round(state == Assistant.State.IDLE ? 0x33FFFFFF : 0xFF3A93FF, unit * 2f));
-            if (line != null) { answerText.setText(line); answerText.setVisibility(View.VISIBLE); }
+            if (aiD == null) return;
+            int color = state == Assistant.State.LISTENING ? LISTEN : state == Assistant.State.THINKING ? THINK : state == Assistant.State.SPEAKING ? TALK : BLUE;
+            aiD.setPlate(color);
+            aiC.setPlate(color);
+            aiLabel.setText(state == Assistant.State.LISTENING ? "กำลังฟัง… แตะเมื่อพูดจบ" : state == Assistant.State.THINKING ? "กำลังคิด…" : state == Assistant.State.SPEAKING ? "กำลังพูด… แตะเพื่อหยุด" : "ถาม AI");
+            if (line != null) note(line);
         }
     };
 
@@ -397,7 +514,7 @@ public class OverlayService extends Service {
             boolean fresh = at != null && speedKmh >= 0 && System.currentTimeMillis() - lastFix < 15000;
             if (at == null) s.append("Position: no GPS fix yet\n");
             else s.append(String.format(Locale.US, "Position: %.5f, %.5f%s\n", at.getLatitude(), at.getLongitude(), fresh ? "" : " (last known, may be stale)"));
-            CharSequence road = roadText == null ? "" : roadText.getText();
+            CharSequence road = roadName;
             if (road.length() > 0) s.append("Road (from OpenStreetMap): ").append(road).append('\n');
             if (!heading.isEmpty()) s.append("Heading: ").append(heading).append('\n');
             s.append("Speed: ").append(fresh ? Math.round(speedKmh) + " km/h" : "unknown").append("; limit sign on the display: ").append(limit).append(" km/h\n");
@@ -409,13 +526,13 @@ public class OverlayService extends Service {
         }
         @Override public Location place() { return lastPlace; }
         @Override public void setLimit(final int kmh) {
-            ui.post(new Runnable() { @Override public void run() { limit = kmh; limitText.setText(String.valueOf(kmh)); prefs.edit().putInt("limit", kmh).apply(); manualWay = roadWay; } });
+            ui.post(new Runnable() { @Override public void run() { setLimitNow(kmh); manualWay = roadWay; } });
         }
         @Override public void setPath(final boolean visible) {
-            ui.post(new Runnable() { @Override public void run() { path.setVisibility(visible ? View.VISIBLE : View.GONE); prefs.edit().putBoolean("pathOn", visible).apply(); labels(); } });
+            ui.post(new Runnable() { @Override public void run() { prefs.edit().putBoolean("pathOn", visible).apply(); showPath(); } });
         }
-        @Override public void hideOverlay(final boolean hidden) {
-            ui.post(new Runnable() { @Override public void run() { card.setVisibility(hidden ? View.INVISIBLE : View.VISIBLE); path.setAlpha(hidden ? 0f : card.getAlpha()); } });
+        @Override public void hideOverlay(final boolean hide) {       // so a screen frame shows the whole camera picture
+            ui.post(new Runnable() { @Override public void run() { hidden = hide; dash.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); strip.setVisibility(hide ? View.INVISIBLE : View.VISIBLE); showPath(); } });
         }
     };
 
@@ -434,40 +551,34 @@ public class OverlayService extends Service {
     private final Runnable musicChanged = new Runnable() {
         @Override public void run() {
             ui.post(new Runnable() { @Override public void run() {
-                if (musicBox == null) return;
+                if (titleD == null) return;
                 NowPlaying now = NowPlaying.get();
-                if (now.title == null) { musicBox.setVisibility(View.GONE); return; }
-                String line = "\u266A " + now.title;
-                if (!line.contentEquals(musicText.getText())) musicText.setText(line);
+                if (now.title == null) return;
+                if (!now.title.contentEquals(titleD.getText())) titleD.setText(now.title);
                 String who = now.artist == null ? "" : now.artist;
-                if (!who.contentEquals(artistText.getText())) artistText.setText(who);
-                playKey.setText(Boolean.TRUE.equals(now.playing) ? "II" : "\u25B6");
-                musicBox.setVisibility(View.VISIBLE);
+                if (!who.contentEquals(artistD.getText())) artistD.setText(who);
+                playD.setKind(Boolean.TRUE.equals(now.playing) ? IconView.PAUSE : IconView.PLAY);
             } });
         }
     };
 
-    // ---------------------------------------------------------------- speed, trip and alerts
+    // ---------------------------------------------------------------- speed and alerts
 
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             boolean fresh = speedKmh >= 0 && System.currentTimeMillis() - lastFix < 5000;
             boolean over = fresh && speedKmh > limit + 0.5f;
-            speedText.setText(fresh ? String.valueOf(Math.round(speedKmh)) : "--");
-            speedText.setTextColor(over ? SIGN_RED : INK);
+            String shown = fresh ? String.valueOf(Math.round(speedKmh)) : "--";
+            if (!shown.contentEquals(speedD.getText())) { speedD.setText(shown); speedC.setText(shown); }
+            speedD.setTextColor(over ? SIGN_RED : INK);
+            speedC.setTextColor(over ? SIGN_RED : INK);
             if (over && speedKmh > limit + 3 && prefs.getBoolean("tone", true) && SystemClock.elapsedRealtime() - lastTone > 4000) beep();
+            if (!fresh && noteD.getText().length() == 0) { noteD.setText("รอสัญญาณ GPS"); noteD.setTextColor(INK_DIM); }
+            else if (fresh && "รอสัญญาณ GPS".contentEquals(noteD.getText())) noteD.setText("");
 
-            long minutes = movingMillis / 60000;
-            tripText.setText(String.format(Locale.US, "ทริป %.1f กม. · %d:%02d ชม. · สูงสุด %d", tripMetres / 1000.0, minutes / 60, minutes % 60, Math.round(maxKmh)));
-            StringBuilder more = new StringBuilder();
-            if (!heading.isEmpty()) more.append("มุ่ง").append(heading);
-            if (sprintSeconds > 0) more.append(more.length() > 0 ? " · " : "").append(String.format(Locale.US, "0–100 ≈ %.1f วิ", sprintSeconds));
-            if (!roadNote.isEmpty()) more.append(more.length() > 0 ? " · " : "").append(roadNote);
-            moreText.setText(more.length() == 0 ? "รอข้อมูล GPS" : more.toString());
-
-            int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);     // dim after dark so the card does not glare
-            float dim = hour >= 19 || hour < 6 ? 0.78f : 1f;
-            if (card.getAlpha() != dim) { card.setAlpha(dim); path.setAlpha(dim); }
+            int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);     // dim after dark so the display does not glare
+            float dim = hour >= 19 || hour < 6 ? 0.8f : 1f;
+            if (strip.getAlpha() != dim) { strip.setAlpha(dim); path.setAlpha(dim); }
             ui.postDelayed(this, 500);
         }
     };
@@ -487,10 +598,6 @@ public class OverlayService extends Service {
                 speedKmh = at.getSpeed() * 3.6f;
                 lastFix = System.currentTimeMillis();
                 if (speedKmh > maxKmh) maxKmh = speedKmh;
-                // 0–100: armed while standing still, timed from the first fix that shows movement
-                if (speedKmh < 2) { armed = true; launchAt = -1; }
-                else if (armed && launchAt < 0) launchAt = lastFixClock > 0 ? lastFixClock : clock;
-                if (armed && launchAt > 0 && speedKmh >= 100) { sprintSeconds = (clock - launchAt) / 1000f; armed = false; }
             }
             if (lastPlace != null && speedKmh > 3 && clock - lastFixClock < 5000) {
                 tripMetres += lastPlace.distanceTo(at);
@@ -519,17 +626,12 @@ public class OverlayService extends Service {
         RoadInfo.lookup(at.getLatitude(), at.getLongitude(), ui, new RoadInfo.Done() {
             @Override public void on(RoadInfo.Result r) {
                 lookingUp = false;
-                if (!running || roadText == null || !prefs.getBoolean("roads", true)) return;
                 // The road name is a nicety from a free public service that is often slow; stay quiet when it does not answer.
-                if (r.error != null) { roadNote = ""; return; }
+                if (!running || roadD == null || !prefs.getBoolean("roads", true) || r.error != null) return;
                 roadWay = r.wayId;
-                roadText.setText(r.name == null ? "" : r.name);
-                roadText.setVisibility(r.name == null ? View.GONE : View.VISIBLE);
-                if (r.limit > 0 && manualWay != r.wayId) {      // posted limit known and not overridden by hand on this road
-                    limit = r.limit;
-                    limitText.setText(String.valueOf(limit));
-                    roadNote = "ป้ายจากแผนที่";
-                } else roadNote = r.limit > 0 ? "ป้ายตั้งเอง" : "แผนที่ไม่มีป้ายของถนนนี้";
+                roadName = r.name == null ? "" : r.name;
+                roadD.setText(roadName);
+                if (r.limit > 0 && manualWay != r.wayId) setLimitNow(r.limit);      // posted limit known and not overridden by hand on this road
             }
         });
     }
