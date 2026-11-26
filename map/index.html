@@ -58,7 +58,12 @@
   #results { max-height: 60vh; overflow-y: auto; }
   #results li.chips { display: flex; gap: 6px; overflow-x: auto; padding: 8px; cursor: default; }
   #results li.chips button { flex: none; font: inherit; padding: 6px 10px; border: 1px solid #ccc; border-radius: 16px; background: #f5f5f5; color: #111; cursor: pointer; }
-  #saveRow { display: none; }
+  #saveRow, #optRow { display: none; }
+  #optRow button { flex: 1; background: #f1f3f6; border: 2px solid transparent; text-align: left; line-height: 1.35; }
+  #optRow button.on { border-color: #1668e3; background: #e8f0fe; font-weight: 600; }
+  #optRow small { display: block; font-weight: 400; color: #444; }
+  #noKey { display: none; margin-top: 6px; float: right; font: inherit; font-size: 13px; padding: 6px 10px; border: 0; border-radius: 16px;
+    background: #fff3cd; color: #5c4400; box-shadow: 0 1px 6px rgba(0,0,0,.3); cursor: pointer; }
   #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
 </style>
 </head>
@@ -68,6 +73,7 @@
 <form id="search">
   <input id="q" type="search" placeholder="🔍 ค้นหาสถานที่ แล้วกด Enter" autocomplete="off" enterkeyhint="search">
   <ul id="results"></ul>
+  <button type="button" id="noKey">🚦 ยังไม่แสดงรถติด — แตะเพื่อเปิดใช้</button>
 </form>
 
 <div class="panel">
@@ -94,6 +100,10 @@
 <div id="nav">
   <div id="navMain"></div>
   <div id="navSub"></div>
+  <div class="row" id="optRow">
+    <button id="optToll">🛣️ ขึ้นทางด่วน<small></small></button>
+    <button id="optFree">🚫 ไม่ขึ้นทางด่วน<small></small></button>
+  </div>
   <div class="row">
     <button id="navGo"></button>
     <button id="navSave" title="บันทึกสถานที่">⭐</button>
@@ -112,8 +122,10 @@
     <h3 style="margin-top:0">ใส่ TomTom API key</h3>
     <p>ใช้สำหรับจราจรสดและธีมมืด แผนที่ 3D ธีมสว่างใช้ได้โดยไม่ต้องมี key</p>
     <ol>
-      <li>สมัครฟรีที่ developer.tomtom.com</li>
-      <li>คัดลอก key จาก Dashboard → Keys แล้ววางด้านล่าง</li>
+      <li><a href="https://developer.tomtom.com/" target="_blank" rel="noopener">เปิดเว็บ developer.tomtom.com</a> แล้วกด Register / Sign up</li>
+      <li>กรอกอีเมลกับรหัสผ่าน แล้วกดลิงก์ยืนยันในอีเมล</li>
+      <li>ล็อกอิน เข้าเมนู API Keys แล้วกดคัดลอก key</li>
+      <li>กลับมาหน้านี้ วาง key ด้านล่าง แล้วกดบันทึก</li>
     </ol>
     <input id="keyInput" type="text" placeholder="API key" autocomplete="off">
     <button id="saveKey">บันทึก</button><button id="skipKey" class="ghost">ข้ามไปก่อน</button>
@@ -128,6 +140,7 @@ const CONFIG = {
   pitch: 60,                     // มุมเอียงกล้อง (0 = มองตรงลง, สูงสุด 80)
   bearing: -20,
   refreshSeconds: 60,
+  flowThickness: 14,             // ความหนาเส้นจราจร 1-20 (ค่าเริ่มต้นของ TomTom คือ 10)
   flowStyle: 'relative0',        // relative0 | relative | absolute | reduced-sensitivity
   incidentStyle: 's3',           // s1 | s2 | s3 | night
   lightStyle: 'https://tiles.openfreemap.org/styles/liberty',
@@ -149,7 +162,7 @@ let key = store.get('tomtomKey', '');
 let stamp = Date.now();
 
 const T = 'https://api.tomtom.com';
-const flowTiles = () => [`${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`];
+const flowTiles = () => [`${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}&thickness=${CONFIG.flowThickness}&t=${stamp}`];
 const incTiles  = () => [`${T}/traffic/map/4/tile/incidents/${CONFIG.incidentStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`];
 
 // ธีมมืด: พื้นแผนที่ TomTom night + ตึกจาก OSM
@@ -388,6 +401,7 @@ const bearingOf = (a, b) => { const [x, y] = flat(a, b); return (Math.atan2(x, y
 const fmtD = m => m < 1000 ? Math.max(10, Math.round(m / 10) * 10) + ' ม.' : (m / 1000).toFixed(m < 10000 ? 1 : 0) + ' กม.';
 const fmtT = s => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m + ' นาที' : Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที'; };
 
+let altRoute = null, routeOpts = {}, avoidToll = store.get('opt_avoidToll', 'false') === 'true';
 let dest = null, route = null, navOn = false, watchId = null, mePos = null, meMarker = null;
 let offCount = 0, lastReroute = 0, lastSpoken = null, wakeLock = null;
 let voice = store.get('opt_voice', 'true') === 'true';
@@ -402,22 +416,28 @@ function osrmText(st) {
   return (TURN[m.modifier] || 'ตรงไป') + road;
 }
 
-async function getRoute(from, to) {
+async function getRoute(from, to, avoidToll) {
   let r = null;
   if (key) {
     try {
       const res = await fetch(`${T}/routing/1/calculateRoute/${from[1]},${from[0]}:${to[1]},${to[0]}/json` +
-        `?key=${key}&traffic=true&travelMode=car&instructionsType=text&language=th-TH`);
+        `?key=${key}&traffic=true&travelMode=car&instructionsType=text&language=th-TH&sectionType=traffic` +
+        (avoidToll ? '&avoid=tollRoads' : ''));
       if (!res.ok) throw new Error(res.status);
       const rt = (await res.json()).routes[0];
       r = { traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds,
+        delay: rt.summary.trafficDelayInSeconds || 0,
+        jams: (rt.sections || []).filter(x => x.sectionType === 'TRAFFIC' && x.magnitudeOfDelay > 0)
+          .map(x => ({ a: x.startPointIndex, b: x.endPointIndex, m: x.magnitudeOfDelay })),
         coords: rt.legs.flatMap(l => l.points.map(p => [p.longitude, p.latitude])),
         steps: ((rt.guidance || {}).instructions || []).map(i => ({ text: i.message, at: i.routeOffsetInMeters })) };
     } catch { r = null; }   // key ใช้ไม่ได้ / โควตาหมด → ใช้ OSRM แทน
   }
   if (!r) {
-    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}` +
-      `?overview=full&geometries=geojson&steps=true`);
+    const url = `https://router.project-osrm.org/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}` +
+      `?overview=full&geometries=geojson&steps=true`;
+    let res = await fetch(url + (avoidToll ? '&exclude=toll' : ''));
+    if (!res.ok && avoidToll) res = await fetch(url + '&exclude=motorway');
     if (!res.ok) throw new Error('route ' + res.status);
     const rt = ((await res.json()).routes || [])[0];
     if (!rt) throw new Error('no route');
@@ -430,14 +450,25 @@ async function getRoute(from, to) {
   return r;
 }
 
+const JAM = ['match', ['get', 'm'], 1, '#ffb000', 2, '#ff6a00', 3, '#e0201b', '#8b0000'];
 function drawRoute() {
-  const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: route ? route.coords : [] } };
+  const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
+  const feats = [];
+  if (altRoute && !navOn) feats.push(line(altRoute.coords, { kind: 'alt' }));
+  if (route) {
+    feats.push(line(route.coords, { kind: 'main' }));
+    for (const j of route.jams || []) feats.push(line(route.coords.slice(j.a, j.b + 1), { kind: 'jam', m: j.m }));
+  }
+  const data = { type: 'FeatureCollection', features: feats };
   if (map.getSource('route')) { map.getSource('route').setData(data); return; }
   map.addSource('route', { type: 'geojson', data });
   const before = map.getLayer('my-buildings') ? 'my-buildings' : undefined;
   const lay = { 'line-cap': 'round', 'line-join': 'round' };
-  map.addLayer({ id: 'route-case', type: 'line', source: 'route', layout: lay, paint: { 'line-color': '#0b3d91', 'line-width': 11 } }, before);
-  map.addLayer({ id: 'route', type: 'line', source: 'route', layout: lay, paint: { 'line-color': '#3d8bff', 'line-width': 7 } }, before);
+  const add = (id, kind, paint) => map.addLayer({ id, type: 'line', source: 'route', layout: lay, filter: ['==', ['get', 'kind'], kind], paint }, before);
+  add('route-alt', 'alt', { 'line-color': '#8a94a6', 'line-width': 6, 'line-opacity': 0.8 });
+  add('route-case', 'main', { 'line-color': '#0b3d91', 'line-width': 11 });
+  add('route', 'main', { 'line-color': '#3d8bff', 'line-width': 7 });
+  add('route-jam', 'jam', { 'line-color': JAM, 'line-width': 7 });
 }
 map.on('style.load', drawRoute);
 
@@ -460,6 +491,7 @@ function sheet(main, sub, go, close) {
   $('navVoice').textContent = voice ? '🔊' : '🔇';
   $('navSave').style.display = dest && !navOn ? '' : 'none';
   $('saveRow').style.display = 'none';
+  $('optRow').style.display = 'none';
 }
 $('navSave').onclick = () => { $('saveRow').style.display = $('saveRow').style.display === 'flex' ? 'none' : 'flex'; };
 for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => {
@@ -472,11 +504,11 @@ for (const b of document.querySelectorAll('[data-save]')) b.onclick = () => {
 };
 function setDest(p, label) {
   if (navOn) return;
-  dest = { p, label }; route = null; drawRoute();
+  dest = { p, label }; route = null; altRoute = null; routeOpts = {}; drawRoute();
   sheet(label, 'แตะปุ่มเพื่อหาเส้นทางจากตำแหน่งของคุณ', '🧭 เส้นทางไปที่นี่');
 }
 function closeNav() {
-  navOn = false; route = null; dest = null; drawRoute();
+  navOn = false; route = null; altRoute = null; routeOpts = {}; dest = null; drawRoute();
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   if (window.speechSynthesis) speechSynthesis.cancel();
@@ -497,25 +529,50 @@ async function planRoute() {
   catch { sheet(dest.label, 'หาตำแหน่งไม่ได้ — เปิดโลเคชั่นและอนุญาตให้เว็บนี้ใช้ตำแหน่ง แล้วลองใหม่', '🧭 ลองใหม่'); return false; }
   showMe(from);
   sheet(dest.label, 'กำลังคำนวณเส้นทาง…', null);
-  try { route = await getRoute(from, dest.p); }
-  catch { sheet(dest.label, 'คำนวณเส้นทางไม่ได้ — ตรวจอินเทอร์เน็ต หรือปลายทางอาจไปด้วยรถไม่ได้', '🧭 ลองใหม่'); return false; }
-  drawRoute(); lastSpoken = null; offCount = 0;
+  routeOpts = {};
+  try { routeOpts.toll = await getRoute(from, dest.p, false); } catch {}
+  try { routeOpts.free = await getRoute(from, dest.p, true); } catch {}
+  if (!routeOpts.toll && !routeOpts.free) { sheet(dest.label, 'คำนวณเส้นทางไม่ได้ — ตรวจอินเทอร์เน็ต หรือปลายทางอาจไปด้วยรถไม่ได้', '🧭 ลองใหม่'); return false; }
+  // ถ้าสองแบบได้เส้นเดียวกัน แปลว่าเส้นทางนี้ไม่ผ่านทางด่วนอยู่แล้ว
+  if (routeOpts.toll && routeOpts.free && Math.abs(routeOpts.toll.dist - routeOpts.free.dist) < 50) delete routeOpts.free;
+  lastSpoken = null; offCount = 0;
   return true;
 }
 function previewText() {
-  return `${fmtD(route.dist)} · ${fmtT(route.dur)}` + (route.traffic ? ' (รวมจราจรสด)' : ' (ไม่รวมจราจร)');
+  if (!route.traffic) return `${fmtD(route.dist)} · ${fmtT(route.dur)} · ยังไม่รู้สภาพรถติด (ไม่มี key)`;
+  return `${fmtD(route.dist)} · ${fmtT(route.dur)} · ` + (route.delay > 60 ? `รถติด ช้าลง ${fmtT(route.delay)}` : 'รถไม่ติด');
 }
+function showPreview(fit) {
+  const both = routeOpts.toll && routeOpts.free;
+  const useFree = both ? avoidToll : !routeOpts.toll;
+  route = useFree ? routeOpts.free : routeOpts.toll;
+  altRoute = both ? (useFree ? routeOpts.toll : routeOpts.free) : null;
+  drawRoute();
+  if (fit) {
+    const all = route.coords.concat(altRoute ? altRoute.coords : []);
+    const b = all.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(all[0], all[0]));
+    map.fitBounds(b, { padding: { top: 90, bottom: 260, left: 50, right: 50 }, pitch: 0, bearing: 0 });
+  }
+  sheet(dest.label, previewText() + (both ? '' : ' · เส้นทางนี้ไม่ผ่านทางด่วน'), '▶ เริ่มนำทาง', 'ยกเลิก');
+  if (both) {
+    $('optRow').style.display = 'flex';
+    for (const [id, r, on] of [['optToll', routeOpts.toll, !useFree], ['optFree', routeOpts.free, useFree]]) {
+      $(id).classList.toggle('on', on);
+      $(id).querySelector('small').textContent = `${fmtT(r.dur)} · ${fmtD(r.dist)}`;
+    }
+  }
+}
+$('optToll').onclick = () => { avoidToll = false; store.set('opt_avoidToll', false); showPreview(false); };
+$('optFree').onclick = () => { avoidToll = true; store.set('opt_avoidToll', true); showPreview(false); };
 async function onGo() {
   if (!dest) return;
   if (!route) {                       // ขั้นที่ 1: หาเส้นทาง + แสดงภาพรวม
     if (!await planRoute()) return;
-    const b = route.coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(route.coords[0], route.coords[0]));
-    map.fitBounds(b, { padding: { top: 90, bottom: 190, left: 50, right: 50 }, pitch: 0, bearing: 0 });
-    sheet(dest.label, previewText(), '▶ เริ่มนำทาง', 'ยกเลิก');
+    showPreview(true);
     return;
   }
   // ขั้นที่ 2: เริ่มนำทาง
-  navOn = true; document.body.classList.add('navactive');
+  navOn = true; altRoute = null; drawRoute(); document.body.classList.add('navactive');
   sheet('เริ่มนำทาง', previewText(), null, 'จบการนำทาง');
   say('เริ่มนำทาง ไป ' + dest.label);
   try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
@@ -541,7 +598,7 @@ async function onPos(g) {
   if (s.off > 60) {                   // หลุดเส้นทาง → คำนวณใหม่
     if (++offCount >= 3 && Date.now() - lastReroute > 10000) {
       lastReroute = Date.now(); offCount = 0;
-      try { route = await getRoute(p, dest.p); drawRoute(); lastSpoken = null; say('คำนวณเส้นทางใหม่'); } catch {}
+      try { route = await getRoute(p, dest.p, avoidToll && !!routeOpts.free); drawRoute(); lastSpoken = null; say('คำนวณเส้นทางใหม่'); } catch {}
     }
     if (!navOn) return;
   } else offCount = 0;
@@ -603,13 +660,16 @@ $('theme').addEventListener('change', setTheme);
 $('tilt').onclick = () => map.easeTo(map.getPitch() > 5
   ? { pitch: 0, bearing: 0 } : { pitch: CONFIG.pitch, bearing: CONFIG.bearing, zoom: Math.max(map.getZoom(), 15) });
 
+const syncNoKey = () => { $('noKey').style.display = key ? 'none' : 'block'; };
+$('noKey').onclick = () => openKey();
+syncNoKey();
 function openKey() { $('keyInput').value = key; $('keyBox').style.display = 'flex'; }
 $('changeKey').onclick = openKey;
 $('skipKey').onclick = () => { $('keyBox').style.display = 'none'; store.set('keySkipped', '1'); };
 $('saveKey').onclick = () => {
   const v = $('keyInput').value.trim();
   if (!v) return;
-  key = v; store.set('tomtomKey', v);
+  key = v; store.set('tomtomKey', v); syncNoKey();
   $('keyBox').style.display = 'none'; $('err').style.display = 'none';
   map.setStyle(theme() === 'dark' ? darkStyle() : CONFIG.lightStyle, { diff: false });   // โหลดใหม่ให้ชั้นจราจรใช้ key ใหม่
 };
