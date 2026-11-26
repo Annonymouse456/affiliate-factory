@@ -33,9 +33,33 @@ public class App extends Application {
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("car", Context.MODE_PRIVATE); }
 
-    /** Megabytes free where the app keeps its settings, or -1 when it cannot be read. */
+    /** Megabytes free on the head unit's internal storage, or -1 when it cannot be read. */
     static long freeMegabytes(Context c) {
-        try { return new android.os.StatFs(c.getFilesDir().getPath()).getAvailableBytes() / (1024 * 1024); } catch (Throwable e) { return -1; }
+        try { return new android.os.StatFs(android.os.Environment.getDataDirectory().getPath()).getAvailableBytes() / (1024 * 1024); } catch (Throwable e) { return -1; }
+    }
+
+    /**
+     * Why the app cannot save, found by actually writing a small file: storage full and a broken
+     * app folder look the same from outside but need different fixes. Returns null when saving works.
+     */
+    static String whyCannotSave(Context c) {
+        java.io.File dir = c.getFilesDir();
+        try {
+            if (dir == null) return "ระบบไม่ให้โฟลเดอร์ข้อมูลแอป";
+            if (!dir.exists() && !dir.mkdirs()) return "สร้างโฟลเดอร์ข้อมูลแอปไม่ได้ (" + dir.getPath() + ")";
+            java.io.File probe = new java.io.File(dir, "probe.tmp");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(probe);
+            out.write(new byte[4096]);
+            out.getFD().sync();
+            out.close();
+            probe.delete();
+            return null;
+        } catch (Throwable e) {
+            String m = String.valueOf(e.getMessage());
+            if (m.contains("ENOSPC") || m.contains("No space")) return "พื้นที่เก็บข้อมูลของจอเต็ม";
+            if (m.contains("EACCES") || m.contains("Permission")) return "โฟลเดอร์ข้อมูลแอปเสีย (ไม่มีสิทธิ์เขียน) ต้องถอนการติดตั้งแอปแล้วลงใหม่";
+            return "เขียนไฟล์ไม่ได้: " + (m.length() > 90 ? m.substring(0, 90) : m);
+        }
     }
 
     /**

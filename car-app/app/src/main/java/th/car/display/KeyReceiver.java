@@ -100,14 +100,19 @@ final class KeyReceiver {
             else {
                 android.content.SharedPreferences.Editor e = App.prefs(c).edit();
                 String summary = "";
-                if (claude.length() >= 20) { e.putString("claudeKey", claude); summary += "คีย์ Claude (ลงท้าย " + claude.substring(claude.length() - 4) + ") "; }
-                if (openai.length() >= 20) { e.putString("openaiKey", openai); summary += "คีย์ OpenAI (ลงท้าย " + openai.substring(openai.length() - 4) + ")"; }
+                if (claude.length() >= 20) { Assistant.sessionClaudeKey = claude; e.putString("claudeKey", claude); summary += "คีย์ Claude (ลงท้าย " + claude.substring(claude.length() - 4) + ") "; }
+                if (openai.length() >= 20) { Assistant.sessionOpenAiKey = openai; e.putString("openaiKey", openai); summary += "คีย์ OpenAI (ลงท้าย " + openai.substring(openai.length() - 4) + ")"; }
                 if (e.commit()) {            // written to storage before we say so
                     saved = true;
                     message = "บันทึกลงจอรถแล้ว: " + summary.trim() + " ปิดหน้านี้ได้เลย";
                     done.saved(summary.trim());
-                } else {
-                    message = "จอรถบันทึกคีย์ลงเครื่องไม่สำเร็จ พื้นที่ว่างเหลือ " + App.freeMegabytes(c) + " MB ลองลบแอปหรือไฟล์ที่ไม่ใช้บนจอรถแล้วส่งใหม่";
+                } else {                     // usable until the app closes; say exactly why it could not be kept
+                    saved = true;
+                    String why = App.whyCannotSave(c);
+                    long free = App.freeMegabytes(c);
+                    String note = "ใช้ได้ชั่วคราวจนกว่าจะปิดแอป แต่จอรถบันทึกถาวรไม่ได้: " + (why == null ? "ไม่ทราบสาเหตุ" : why) + (free >= 0 ? " (พื้นที่ว่าง " + free + " MB)" : "");
+                    message = "จอรถรับคีย์แล้ว " + note;
+                    done.saved(summary.trim() + "\n" + note);
                 }
             }
         }

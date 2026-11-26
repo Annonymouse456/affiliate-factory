@@ -63,8 +63,10 @@ final class Assistant {
     void detach(Listener l) { if (listener == l) { listener = null; car = null; } }
     State state() { return state; }
 
-    static String claudeKey(Context c) { return App.prefs(c).getString("claudeKey", "").trim(); }
-    static String openAiKey(Context c) { return App.prefs(c).getString("openaiKey", "").trim(); }
+    // Keys also live in memory, so the co-pilot still works for this run on a head unit that cannot save them.
+    static volatile String sessionClaudeKey = "", sessionOpenAiKey = "";
+    static String claudeKey(Context c) { String k = App.prefs(c).getString("claudeKey", "").trim(); return k.isEmpty() ? sessionClaudeKey : k; }
+    static String openAiKey(Context c) { String k = App.prefs(c).getString("openaiKey", "").trim(); return k.isEmpty() ? sessionOpenAiKey : k; }
 
     private void show(final State s, final String line) {
         state = s;
