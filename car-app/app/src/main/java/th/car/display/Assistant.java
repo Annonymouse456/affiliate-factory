@@ -65,8 +65,8 @@ final class Assistant {
 
     // Keys also live in memory, so the co-pilot still works for this run on a head unit that cannot save them.
     static volatile String sessionClaudeKey = "", sessionOpenAiKey = "";
-    static String claudeKey(Context c) { String k = App.prefs(c).getString("claudeKey", "").trim(); return k.isEmpty() ? sessionClaudeKey : k; }
-    static String openAiKey(Context c) { String k = App.prefs(c).getString("openaiKey", "").trim(); return k.isEmpty() ? sessionOpenAiKey : k; }
+    static String claudeKey(Context c) { String k = App.prefs(c).getString("claudeKey", "").trim(); if (k.isEmpty()) k = sessionClaudeKey; return k.isEmpty() ? App.spareKey(c, "claudeKey") : k; }
+    static String openAiKey(Context c) { String k = App.prefs(c).getString("openaiKey", "").trim(); if (k.isEmpty()) k = sessionOpenAiKey; return k.isEmpty() ? App.spareKey(c, "openaiKey") : k; }
 
     private void show(final State s, final String line) {
         state = s;

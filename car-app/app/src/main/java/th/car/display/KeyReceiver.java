@@ -110,7 +110,9 @@ final class KeyReceiver {
                     saved = true;
                     String why = App.whyCannotSave(c);
                     long free = App.freeMegabytes(c);
-                    String note = "ใช้ได้ชั่วคราวจนกว่าจะปิดแอป แต่จอรถบันทึกถาวรไม่ได้: " + (why == null ? "ไม่ทราบสาเหตุ" : why) + (free >= 0 ? " (พื้นที่ว่าง " + free + " MB)" : "");
+                    boolean spare = (claude.length() < 20 || App.saveSpareKey(c, "claudeKey", claude)) && (openai.length() < 20 || App.saveSpareKey(c, "openaiKey", openai));
+                    String note = spare ? "บันทึกไว้ในที่เก็บสำรองของจอแล้ว จะอยู่ต่อหลังปิดแอป (ที่เก็บปกติใช้ไม่ได้: " + (why == null ? "ไม่ทราบสาเหตุ" : why) + ")"
+                            : "ใช้ได้ชั่วคราวจนกว่าจะปิดแอป แต่จอรถบันทึกถาวรไม่ได้: " + (why == null ? "ไม่ทราบสาเหตุ" : why) + (free >= 0 ? " (พื้นที่ว่าง " + free + " MB)" : "");
                     message = "จอรถรับคีย์แล้ว " + note;
                     done.saved(summary.trim() + "\n" + note);
                 }
