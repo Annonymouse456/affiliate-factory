@@ -86,7 +86,7 @@ public class GaugeView extends View {
             moving = Math.abs(aim - shown) > 0.15f;
             if (!moving) shown = aim;
         }
-        boolean over = target > limit + 0.5f && intro >= 1300;
+        boolean over = limit > 0 && target > limit + 0.5f && intro >= 1300;
 
         c.drawArc(oval, START, SWEEP, false, track);
         for (int v = 0; v <= MAX; v += 20) {
@@ -102,10 +102,12 @@ public class GaugeView extends View {
             c.drawArc(oval, START, fill, false, glow);
             c.drawArc(oval, START, fill, false, arc);
         }
-        double la = Math.toRadians(START + SWEEP * Math.min(MAX, limit) / MAX);     // the set limit, marked on the dial
-        float lx = cx + (float) Math.cos(la) * r, ly = cy + (float) Math.sin(la) * r;
-        dot.setColor(0xFFFFFFFF); c.drawCircle(lx, ly, stroke * 0.62f, dot);
-        dot.setColor(0xFFE5483D); c.drawCircle(lx, ly, stroke * 0.42f, dot);
+        if (limit > 0) {                                      // the warning speed, marked on the dial when one is set
+            double la = Math.toRadians(START + SWEEP * Math.min(MAX, limit) / MAX);     // the set limit, marked on the dial
+            float lx = cx + (float) Math.cos(la) * r, ly = cy + (float) Math.sin(la) * r;
+            dot.setColor(0xFFFFFFFF); c.drawCircle(lx, ly, stroke * 0.62f, dot);
+            dot.setColor(0xFFE5483D); c.drawCircle(lx, ly, stroke * 0.42f, dot);
+        }
 
         big.setColor(over ? 0xFFFF5A4F : 0xFFF1F5F6);
         String number = intro < 1300 ? String.valueOf(Math.round(shown)) : target < 0 ? "--" : String.valueOf(Math.round(target));
