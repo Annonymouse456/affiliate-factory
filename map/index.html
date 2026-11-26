@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>My Map 3D — เมือง 3 มิติ + จราจรสด</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  body { font-family: system-ui, "Noto Sans Thai", sans-serif; font-size: 14px; background: #10141c; }
+  .panel {
+    position: absolute; z-index: 10; top: 10px; left: 10px;
+    background: #fff; color: #111; border-radius: 10px; padding: 10px 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3); min-width: 190px;
+  }
+  .panel label { display: block; margin: 6px 0; cursor: pointer; }
+  .panel select, .panel button {
+    font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid #bbb; background: #fff; color: #111;
+  }
+  .panel button { cursor: pointer; width: 100%; margin-top: 6px; }
+  .muted { color: #666; font-size: 12px; margin-top: 6px; }
+  .legend { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .legend i { flex: 1; }
+  .legend-text { display: flex; justify-content: space-between; font-size: 11px; color: #666; }
+  #keyBox {
+    position: absolute; z-index: 20; inset: 0; background: rgba(0,0,0,.55);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  #keyBox .card { background: #fff; color: #111; border-radius: 12px; padding: 18px; max-width: 420px; width: 100%; }
+  #keyBox input { width: 100%; box-sizing: border-box; padding: 9px; font: inherit; border: 1px solid #bbb; border-radius: 6px; }
+  #keyBox button { margin: 10px 8px 0 0; padding: 9px 14px; font: inherit; border: 0; border-radius: 6px; background: #1668e3; color: #fff; cursor: pointer; }
+  #keyBox button.ghost { background: #e6e6e6; color: #111; }
+  #keyBox ol { padding-left: 20px; line-height: 1.6; }
+  .panel.closed { min-width: 0; padding: 6px; }
+  .panel.closed #panelBody { display: none; }
+  #search { position: absolute; z-index: 9; top: 10px; right: 10px; width: min(360px, calc(100% - 125px)); }
+  #search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 9px 12px; border: 0; border-radius: 10px;
+    background: #fff; color: #111; box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  #results { list-style: none; margin: 6px 0 0; padding: 0; background: #fff; color: #111; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.3); }
+  #results li { padding: 9px 12px; border-top: 1px solid #eee; cursor: pointer; }
+  #results li:first-child { border-top: 0; }
+  #results small { display: block; color: #666; }
+  #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<form id="search">
+  <input id="q" type="search" placeholder="🔍 ค้นหาสถานที่ แล้วกด Enter" autocomplete="off" enterkeyhint="search">
+  <ul id="results"></ul>
+</form>
+
+<div class="panel">
+  <button id="collapse" style="margin:0">☰ เมนู</button>
+  <div id="panelBody">
+  <label><input type="checkbox" id="b3d" checked> ตึก 3D</label>
+  <label><input type="checkbox" id="flow" checked> จราจรสด (ความเร็ว)</label>
+  <label><input type="checkbox" id="incidents" checked> อุบัติเหตุ / ปิดถนน</label>
+  <label>ธีม
+    <select id="theme">
+      <option value="light">สว่าง</option>
+      <option value="dark">มืด (ต้องมี key)</option>
+    </select>
+  </label>
+  <button id="tilt">🏙️ สลับมุมมอง 2D / 3D</button>
+  <button id="changeKey">🔑 TomTom API key</button>
+  <div class="legend"><i style="background:#2ecc40"></i><i style="background:#ffdc00"></i><i style="background:#ff851b"></i><i style="background:#c0392b"></i><i style="background:#6b1a1a"></i></div>
+  <div class="legend-text"><span>คล่อง</span><span>ติดหนัก</span></div>
+  <div class="muted" id="status">—</div>
+  <div id="err"></div>
+  </div>
+</div>
+
+<div id="keyBox">
+  <div class="card">
+    <h3 style="margin-top:0">ใส่ TomTom API key</h3>
+    <p>ใช้สำหรับจราจรสดและธีมมืด แผนที่ 3D ธีมสว่างใช้ได้โดยไม่ต้องมี key</p>
+    <ol>
+      <li>สมัครฟรีที่ developer.tomtom.com</li>
+      <li>คัดลอก key จาก Dashboard → Keys แล้ววางด้านล่าง</li>
+    </ol>
+    <input id="keyInput" type="text" placeholder="API key" autocomplete="off">
+    <button id="saveKey">บันทึก</button><button id="skipKey" class="ghost">ข้ามไปก่อน</button>
+  </div>
+</div>
+
+<script>
+// ---------- ตั้งค่า (แก้ได้ตามใจ) ----------
+const CONFIG = {
+  center: [100.5018, 13.7563],   // [lng, lat] กรุงเทพฯ
+  zoom: 15.5,
+  pitch: 60,                     // มุมเอียงกล้อง (0 = มองตรงลง, สูงสุด 80)
+  bearing: -20,
+  refreshSeconds: 60,
+  flowStyle: 'relative0',        // relative0 | relative | absolute | reduced-sensitivity
+  incidentStyle: 's3',           // s1 | s2 | s3 | night
+  lightStyle: 'https://tiles.openfreemap.org/styles/liberty',
+  vectorTiles: 'https://tiles.openfreemap.org/planet',   // ข้อมูลตึกจาก OpenStreetMap
+  defaultHeight: 9,              // ความสูง (ม.) ของตึกที่ OSM ไม่มีข้อมูลความสูง
+  building: {
+    light: { low: '#dfe3ea', high: '#aab6c8', opacity: 0.9 },
+    dark:  { low: '#26334a', high: '#4f7fc4', opacity: 0.92 },
+  },
+};
+// -------------------------------------------
+
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const $ = id => document.getElementById(id);
+let key = store.get('tomtomKey', '');
+let stamp = Date.now();
+
+const T = 'https://api.tomtom.com';
+const flowTiles = () => [`${T}/traffic/map/4/tile/flow/${CONFIG.flowStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`];
+const incTiles  = () => [`${T}/traffic/map/4/tile/incidents/${CONFIG.incidentStyle}/{z}/{x}/{y}.png?key=${key}&t=${stamp}`];
+
+// ธีมมืด: พื้นแผนที่ TomTom night + ตึกจาก OSM
+const darkStyle = () => ({
+  version: 8,
+  sources: {
+    base: { type: 'raster', tileSize: 256, maxzoom: 22, attribution: '© TomTom',
+            tiles: [`${T}/map/1/tile/basic/night/{z}/{x}/{y}.png?key=${key}`] },
+    openmaptiles: { type: 'vector', url: CONFIG.vectorTiles },
+  },
+  layers: [
+    { id: 'bg', type: 'background', paint: { 'background-color': '#10141c' } },
+    { id: 'base', type: 'raster', source: 'base' },
+  ],
+});
+
+// ---- restore options ----
+$('theme').value = store.get('opt_theme', 'light');
+if ($('theme').value === 'dark' && !key) $('theme').value = 'light';
+for (const id of ['b3d', 'flow', 'incidents']) $(id).checked = store.get('opt_' + id, 'true') === 'true';
+const theme = () => $('theme').value;
+
+const saved = JSON.parse(store.get('view3d', 'null')) || {};
+const map = new maplibregl.Map({
+  container: 'map',
+  style: theme() === 'dark' ? darkStyle() : CONFIG.lightStyle,
+  center: saved.c || CONFIG.center,
+  zoom: saved.z ?? CONFIG.zoom,
+  pitch: saved.p ?? CONFIG.pitch,
+  bearing: saved.b ?? CONFIG.bearing,
+  maxPitch: 80,
+  antialias: true,
+});
+map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right');
+map.addControl(new maplibregl.GeolocateControl({
+  positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'bottom-right');
+map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+map.on('moveend', () => {
+  const c = map.getCenter();
+  store.set('view3d', JSON.stringify({ c: [c.lng, c.lat], z: map.getZoom(), p: map.getPitch(), b: map.getBearing() }));
+});
+map.on('error', e => {
+  const msg = (e.error && e.error.message) || '';
+  if (/traffic|tomtom|403|401/i.test(msg + ((e.source && e.source.tiles) || ''))) {
+    $('err').style.display = 'block';
+    $('err').textContent = 'โหลดข้อมูล TomTom ไม่ได้ — ตรวจ API key';
+  }
+});
+
+// ---- เติมชั้นตึก 3D + จราจร ทุกครั้งที่โหลด style ----
+function decorate() {
+  const style = map.getStyle();
+  const layers = style.layers;
+
+  // 1) ตึก 3D: ลบชั้นตึกเดิมของ style แล้วใส่ของเราเอง จะได้คุมสี/ความสูงได้
+  const vecSrc = Object.keys(style.sources).find(id => style.sources[id].type === 'vector');
+  for (const l of layers) {
+    if (l.type === 'fill-extrusion' && l.id !== 'my-buildings') map.removeLayer(l.id);
+  }
+  const firstSymbol = (layers.find(l => l.type === 'symbol') || {}).id;
+  if (vecSrc && !map.getLayer('my-buildings')) {
+    const c = CONFIG.building[theme()];
+    const h = ['coalesce', ['get', 'render_height'], CONFIG.defaultHeight];
+    map.addLayer({
+      id: 'my-buildings', type: 'fill-extrusion', source: vecSrc, 'source-layer': 'building', minzoom: 13,
+      filter: ['!=', ['get', 'hide_3d'], true],
+      paint: {
+        'fill-extrusion-height': ['interpolate', ['linear'], ['zoom'], 13, 0, 14.5, h],
+        'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+        'fill-extrusion-color': ['interpolate', ['linear'], h, 0, c.low, 150, c.high],
+        'fill-extrusion-opacity': c.opacity,
+        'fill-extrusion-vertical-gradient': true,
+      },
+    }, firstSymbol);
+  }
+  map.setLayoutProperty('my-buildings', 'visibility', $('b3d').checked ? 'visible' : 'none');
+
+  // 2) จราจร: วางใต้ตึก เพื่อให้ตึกบังถนนด้านหลังแบบสมจริง
+  if (key) {
+    if (!map.getSource('flow')) map.addSource('flow', { type: 'raster', tiles: flowTiles(), tileSize: 256, maxzoom: 22 });
+    if (!map.getSource('inc'))  map.addSource('inc',  { type: 'raster', tiles: incTiles(),  tileSize: 256, maxzoom: 22 });
+    const before = map.getLayer('my-buildings') ? 'my-buildings' : firstSymbol;
+    if (!map.getLayer('flow')) map.addLayer({ id: 'flow', type: 'raster', source: 'flow', paint: { 'raster-opacity': 0.9 } }, before);
+    if (!map.getLayer('inc'))  map.addLayer({ id: 'inc',  type: 'raster', source: 'inc' }, before);
+    map.setLayoutProperty('flow', 'visibility', $('flow').checked ? 'visible' : 'none');
+    map.setLayoutProperty('inc',  'visibility', $('incidents').checked ? 'visible' : 'none');
+    showStamp();
+  } else {
+    $('status').textContent = 'ยังไม่มี key — ไม่แสดงจราจร';
+  }
+}
+map.on('style.load', decorate);
+
+function showStamp() { $('status').textContent = 'จราจรอัปเดต ' + new Date(stamp).toLocaleTimeString('th-TH'); }
+function refreshTraffic() {
+  if (!key || document.hidden || !map.getSource('flow')) return;
+  stamp = Date.now();
+  map.getSource('flow').setTiles(flowTiles());
+  map.getSource('inc').setTiles(incTiles());
+  showStamp();
+}
+setInterval(refreshTraffic, CONFIG.refreshSeconds * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshTraffic(); });
+
+// ---- ค้นหาสถานที่ (Photon / OpenStreetMap, ไม่ต้องใช้ key) ----
+let pin;
+function goTo(lngLat, label) {
+  if (pin) pin.remove();
+  pin = new maplibregl.Marker({ color: '#e5322d' }).setLngLat(lngLat)
+    .setPopup(new maplibregl.Popup({ offset: 30 }).setText(label)).addTo(map);
+  map.flyTo({ center: lngLat, zoom: 16.5, pitch: CONFIG.pitch });
+}
+$('search').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = $('q').value.trim(), box = $('results');
+  if (!q) { box.replaceChildren(); return; }
+  const li = t => { const el = document.createElement('li'); el.textContent = t; return el; };
+  box.replaceChildren(li('กำลังค้นหา…'));
+  try {
+    const c = map.getCenter();
+    const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${c.lat}&lon=${c.lng}`);
+    if (!r.ok) throw new Error(r.status);
+    const feats = (await r.json()).features || [];
+    if (!feats.length) { box.replaceChildren(li('ไม่พบสถานที่')); return; }
+    box.replaceChildren(...feats.map(f => {
+      const p = f.properties, name = p.name || p.street || q;
+      const el = li(name), sub = document.createElement('small');
+      sub.textContent = [p.street, p.district, p.city, p.state, p.country].filter(x => x && x !== name).join(', ');
+      el.append(sub);
+      el.onclick = () => { box.replaceChildren(); $('q').value = name; $('q').blur(); goTo(f.geometry.coordinates, name); };
+      return el;
+    }));
+  } catch { box.replaceChildren(li('ค้นหาไม่ได้ — ตรวจอินเทอร์เน็ต')); }
+});
+$('q').addEventListener('input', () => { if (!$('q').value) $('results').replaceChildren(); });
+
+// ---- UI ----
+const panel = document.querySelector('.panel');
+if (innerWidth < 600) panel.classList.add('closed');
+$('collapse').onclick = () => panel.classList.toggle('closed');
+let styleOk = false;
+map.on('style.load', () => { styleOk = true; $('err').style.display = 'none'; });
+setTimeout(() => {
+  if (styleOk) return;
+  panel.classList.remove('closed');
+  $('err').style.display = 'block';
+  $('err').textContent = 'โหลดแผนที่ไม่ได้ — ตัวเปิดไฟล์นี้อาจบล็อกอินเทอร์เน็ต ลองเปิดใน Safari / Chrome';
+}, 8000);
+for (const id of ['b3d', 'flow', 'incidents']) {
+  $(id).addEventListener('change', () => { store.set('opt_' + id, $(id).checked); if (map.isStyleLoaded()) decorate(); });
+}
+function setTheme() {
+  if (theme() === 'dark' && !key) { $('theme').value = 'light'; openKey(); return; }
+  store.set('opt_theme', theme());
+  map.setStyle(theme() === 'dark' ? darkStyle() : CONFIG.lightStyle, { diff: false });
+}
+$('theme').addEventListener('change', setTheme);
+$('tilt').onclick = () => map.easeTo(map.getPitch() > 5
+  ? { pitch: 0, bearing: 0 } : { pitch: CONFIG.pitch, bearing: CONFIG.bearing, zoom: Math.max(map.getZoom(), 15) });
+
+function openKey() { $('keyInput').value = key; $('keyBox').style.display = 'flex'; }
+$('changeKey').onclick = openKey;
+$('skipKey').onclick = () => { $('keyBox').style.display = 'none'; store.set('keySkipped', '1'); };
+$('saveKey').onclick = () => {
+  const v = $('keyInput').value.trim();
+  if (!v) return;
+  key = v; store.set('tomtomKey', v);
+  $('keyBox').style.display = 'none'; $('err').style.display = 'none';
+  map.setStyle(theme() === 'dark' ? darkStyle() : CONFIG.lightStyle, { diff: false });   // โหลดใหม่ให้ชั้นจราจรใช้ key ใหม่
+};
+$('keyInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('saveKey').click(); });
+if (!key && !store.get('keySkipped', '')) openKey();
+</script>
+</body>
+</html>
