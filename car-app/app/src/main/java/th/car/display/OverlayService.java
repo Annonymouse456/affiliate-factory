@@ -67,7 +67,15 @@ public class OverlayService extends Service {
             {0xFFF472B6, 0xFFA855F7, 0xFF6366F1},
             {0xFFFBBF24, 0xFFF97316, 0xFFEF4444},
             {0xFF6EE7B7, 0xFF10B981, 0xFF0EA5E9}};
-    private int[] theme() { return THEMES[Math.abs(prefs.getInt("theme", 0)) % THEMES.length]; }
+    /** The chosen theme: one of the presets, or three colours spread from a hue the driver picked. */
+    private int[] theme() {
+        int i = Math.abs(prefs.getInt("theme", 0)) % (THEMES.length + 1);
+        if (i < THEMES.length) return THEMES[i];
+        float hue = prefs.getInt("hue", 200);
+        return new int[]{android.graphics.Color.HSVToColor(new float[]{hue % 360, 0.72f, 1f}), android.graphics.Color.HSVToColor(new float[]{(hue + 32) % 360, 0.80f, 1f}),
+                android.graphics.Color.HSVToColor(new float[]{(hue + 64) % 360, 0.68f, 0.96f})};
+    }
+    private String themeName() { int i = Math.abs(prefs.getInt("theme", 0)) % (THEMES.length + 1); return i < THEMES.length ? THEME_NAMES[i] : "กำหนดเอง"; }
 
     private static final String[] COMPASS = {"เหนือ", "ตอ.เฉียงเหนือ", "ตะวันออก", "ตอ.เฉียงใต้", "ใต้", "ตต.เฉียงใต้", "ตะวันตก", "ตต.เฉียงเหนือ"};
 
@@ -86,6 +94,7 @@ public class OverlayService extends Service {
     private EqView eq;
     private DiscView disc;
     private TextView themeKey, voiceKey;
+    private android.widget.SeekBar hueBar;
     private LinearLayout settings;
     private TextView warnKey, bootKey, roadKey, briefKey, pathKey;
     // camera layout
@@ -386,7 +395,25 @@ public class OverlayService extends Service {
         settings.setBackground(sheet);
         settings.setPadding(unit * 2, 0, unit * 2, unit);
         settings.setClickable(true);
-        themeKey = option(settings, new Runnable() { @Override public void run() { prefs.edit().putInt("theme", (prefs.getInt("theme", 0) + 1) % THEMES.length).apply(); ui.post(new Runnable() { @Override public void run() { restyle(); } }); } });
+        themeKey = option(settings, new Runnable() { @Override public void run() { prefs.edit().putInt("theme", (prefs.getInt("theme", 0) + 1) % (THEMES.length + 1)).apply(); ui.post(new Runnable() { @Override public void run() { restyle(); } }); } });
+        // own colour: drag along the colour wheel; shown only while the "own" theme is chosen
+        hueBar = new android.widget.SeekBar(this);
+        hueBar.setMax(359);
+        hueBar.setProgress(prefs.getInt("hue", 200));
+        hueBar.setPadding(unit * 3, unit, unit * 3, unit);
+        int[] wheel = new int[13];
+        for (int i = 0; i < wheel.length; i++) wheel[i] = android.graphics.Color.HSVToColor(new float[]{i * 30 % 360, 0.75f, 1f});
+        GradientDrawable rainbow = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, wheel);
+        rainbow.setCornerRadius(unit * 2f);
+        hueBar.setBackground(rainbow);
+        hueBar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) { }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { prefs.edit().putInt("hue", bar.getProgress()).apply(); ui.post(new Runnable() { @Override public void run() { restyle(); } }); }
+        });
+        LinearLayout.LayoutParams hueAt = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 7);
+        hueAt.topMargin = unit;
+        settings.addView(hueBar, hueAt);
         voiceKey = option(settings, new Runnable() { @Override public void run() { Assistant.sessionFemale = !Assistant.femaleVoice(OverlayService.this); prefs.edit().putBoolean("aiFemale", Assistant.sessionFemale).apply(); } });
         warnKey = option(settings, new Runnable() { @Override public void run() {
             int i = 0;
@@ -549,7 +576,8 @@ public class OverlayService extends Service {
     private void flip(String pref, boolean byDefault) { prefs.edit().putBoolean(pref, !prefs.getBoolean(pref, byDefault)).apply(); }
 
     private void labels() {
-        themeKey.setText("ธีมสี:  " + THEME_NAMES[Math.abs(prefs.getInt("theme", 0)) % THEMES.length] + "  (แตะเพื่อเปลี่ยน)");
+        themeKey.setText("ธีมสี:  " + themeName() + "  (แตะเพื่อเปลี่ยน)");
+        hueBar.setVisibility(Math.abs(prefs.getInt("theme", 0)) % (THEMES.length + 1) == THEMES.length ? View.VISIBLE : View.GONE);
         voiceKey.setText("เสียง AI:  " + (Assistant.femaleVoice(this) ? "ผู้หญิง" : "ผู้ชาย") + "  (แตะเพื่อเปลี่ยน)");
         warnKey.setText("เตือนเมื่อเร็วเกิน:  " + (limit > 0 ? limit + " กม./ชม." : "ปิด") + "  (แตะเพื่อเปลี่ยน)");
         roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
