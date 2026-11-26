@@ -42,6 +42,16 @@
   #results li { padding: 9px 12px; border-top: 1px solid #eee; cursor: pointer; }
   #results li:first-child { border-top: 0; }
   #results small { display: block; color: #666; }
+  #nav { position: absolute; z-index: 9; left: 10px; right: 10px; bottom: 10px; margin: 0 auto; max-width: 520px; display: none;
+    background: #fff; color: #111; border-radius: 14px; padding: 12px 14px; box-shadow: 0 2px 14px rgba(0,0,0,.35); }
+  #navMain { font-size: 18px; font-weight: 600; line-height: 1.3; }
+  #navSub { color: #555; margin-top: 3px; }
+  #nav .row { display: flex; gap: 8px; margin-top: 10px; }
+  #nav button { font: inherit; padding: 10px 14px; border: 0; border-radius: 8px; background: #e6e6e6; color: #111; cursor: pointer; }
+  #nav #navGo { flex: 1; background: #1668e3; color: #fff; font-weight: 600; }
+  body.navopen .maplibregl-ctrl-bottom-right, body.navopen .maplibregl-ctrl-bottom-left { bottom: 150px; }
+  body.navactive #search, body.navactive .panel { display: none; }
+  .me { width: 18px; height: 18px; border-radius: 50%; background: #1668e3; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(22,104,227,.35), 0 1px 4px rgba(0,0,0,.4); }
   #err { color: #c00; font-size: 12px; margin-top: 6px; display: none; }
 </style>
 </head>
@@ -71,6 +81,16 @@
   <div class="legend-text"><span>คล่อง</span><span>ติดหนัก</span></div>
   <div class="muted" id="status">—</div>
   <div id="err"></div>
+  </div>
+</div>
+
+<div id="nav">
+  <div id="navMain"></div>
+  <div id="navSub"></div>
+  <div class="row">
+    <button id="navGo"></button>
+    <button id="navVoice" title="เสียงนำทาง">🔊</button>
+    <button id="navClose">ปิด</button>
   </div>
 </div>
 
@@ -224,11 +244,12 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) refr
 
 // ---- ค้นหาสถานที่ (Photon / OpenStreetMap, ไม่ต้องใช้ key) ----
 let pin;
-function goTo(lngLat, label) {
+function goTo(lngLat, label, fly) {
   if (pin) pin.remove();
   pin = new maplibregl.Marker({ color: '#e5322d' }).setLngLat(lngLat)
     .setPopup(new maplibregl.Popup({ offset: 30 }).setText(label)).addTo(map);
-  map.flyTo({ center: lngLat, zoom: 16.5, pitch: CONFIG.pitch });
+  if (fly !== false) map.flyTo({ center: lngLat, zoom: 16.5, pitch: CONFIG.pitch });
+  setDest(lngLat, label);
 }
 $('search').addEventListener('submit', async e => {
   e.preventDefault();
@@ -253,6 +274,194 @@ $('search').addEventListener('submit', async e => {
   } catch { box.replaceChildren(li('ค้นหาไม่ได้ — ตรวจอินเทอร์เน็ต')); }
 });
 $('q').addEventListener('input', () => { if (!$('q').value) $('results').replaceChildren(); });
+
+// ---- นำทาง ----
+// เส้นทาง: ถ้ามี TomTom key จะคิดเวลาตามจราจรสด + คำแนะนำภาษาไทยจาก TomTom
+//          ถ้าไม่มี key ใช้ OSRM (OpenStreetMap) ซึ่งไม่รู้สภาพจราจร
+const ER = 6371000, rad = d => d * Math.PI / 180;
+const flat = (a, b) => [rad(b[0] - a[0]) * Math.cos(rad((a[1] + b[1]) / 2)) * ER, rad(b[1] - a[1]) * ER];
+const dist = (a, b) => Math.hypot(...flat(a, b));
+const bearingOf = (a, b) => { const [x, y] = flat(a, b); return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360; };
+const fmtD = m => m < 1000 ? Math.max(10, Math.round(m / 10) * 10) + ' ม.' : (m / 1000).toFixed(m < 10000 ? 1 : 0) + ' กม.';
+const fmtT = s => { const m = Math.max(1, Math.round(s / 60)); return m < 60 ? m + ' นาที' : Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที'; };
+
+let dest = null, route = null, navOn = false, watchId = null, mePos = null, meMarker = null;
+let offCount = 0, lastReroute = 0, lastSpoken = null, wakeLock = null;
+let voice = store.get('opt_voice', 'true') === 'true';
+
+const TURN = { left: 'เลี้ยวซ้าย', right: 'เลี้ยวขวา', 'slight left': 'เบี่ยงซ้าย', 'slight right': 'เบี่ยงขวา',
+  'sharp left': 'เลี้ยวซ้ายหักศอก', 'sharp right': 'เลี้ยวขวาหักศอก', straight: 'ตรงไป', uturn: 'กลับรถ' };
+function osrmText(st) {
+  const m = st.maneuver, road = st.name ? ' เข้า ' + st.name : '';
+  if (m.type === 'depart') return 'ออกเดินทาง' + (st.name ? ' ตาม ' + st.name : '');
+  if (m.type === 'arrive') return 'ถึงจุดหมาย';
+  if (m.type === 'roundabout' || m.type === 'rotary') return 'เข้าวงเวียน' + (m.exit ? ' ออกทางออกที่ ' + m.exit : '');
+  return (TURN[m.modifier] || 'ตรงไป') + road;
+}
+
+async function getRoute(from, to) {
+  let r = null;
+  if (key) {
+    try {
+      const res = await fetch(`${T}/routing/1/calculateRoute/${from[1]},${from[0]}:${to[1]},${to[0]}/json` +
+        `?key=${key}&traffic=true&travelMode=car&instructionsType=text&language=th-TH`);
+      if (!res.ok) throw new Error(res.status);
+      const rt = (await res.json()).routes[0];
+      r = { traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds,
+        coords: rt.legs.flatMap(l => l.points.map(p => [p.longitude, p.latitude])),
+        steps: ((rt.guidance || {}).instructions || []).map(i => ({ text: i.message, at: i.routeOffsetInMeters })) };
+    } catch { r = null; }   // key ใช้ไม่ได้ / โควตาหมด → ใช้ OSRM แทน
+  }
+  if (!r) {
+    const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}` +
+      `?overview=full&geometries=geojson&steps=true`);
+    if (!res.ok) throw new Error('route ' + res.status);
+    const rt = ((await res.json()).routes || [])[0];
+    if (!rt) throw new Error('no route');
+    let acc = 0;
+    r = { traffic: false, dist: rt.distance, dur: rt.duration, coords: rt.geometry.coordinates,
+      steps: rt.legs.flatMap(l => l.steps).map(st => { const o = { text: osrmText(st), at: acc }; acc += st.distance; return o; }) };
+  }
+  r.cum = [0];
+  for (let i = 1; i < r.coords.length; i++) r.cum[i] = r.cum[i - 1] + dist(r.coords[i - 1], r.coords[i]);
+  return r;
+}
+
+function drawRoute() {
+  const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: route ? route.coords : [] } };
+  if (map.getSource('route')) { map.getSource('route').setData(data); return; }
+  map.addSource('route', { type: 'geojson', data });
+  const before = map.getLayer('my-buildings') ? 'my-buildings' : undefined;
+  const lay = { 'line-cap': 'round', 'line-join': 'round' };
+  map.addLayer({ id: 'route-case', type: 'line', source: 'route', layout: lay, paint: { 'line-color': '#0b3d91', 'line-width': 11 } }, before);
+  map.addLayer({ id: 'route', type: 'line', source: 'route', layout: lay, paint: { 'line-color': '#3d8bff', 'line-width': 7 } }, before);
+}
+map.on('style.load', drawRoute);
+
+function showMe(p) {
+  mePos = p;
+  if (!meMarker) { const el = document.createElement('div'); el.className = 'me'; meMarker = new maplibregl.Marker({ element: el }).setLngLat(p).addTo(map); }
+  else meMarker.setLngLat(p);
+}
+const locate = () => new Promise((ok, fail) => {
+  if (!navigator.geolocation) return fail(new Error('nogeo'));
+  navigator.geolocation.getCurrentPosition(g => ok([g.coords.longitude, g.coords.latitude]), fail,
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+});
+
+function sheet(main, sub, go, close) {
+  $('nav').style.display = 'block'; document.body.classList.add('navopen');
+  $('navMain').textContent = main; $('navSub').textContent = sub;
+  $('navGo').style.display = go ? '' : 'none'; $('navGo').textContent = go || '';
+  $('navClose').textContent = close || 'ปิด';
+  $('navVoice').textContent = voice ? '🔊' : '🔇';
+}
+function setDest(p, label) {
+  if (navOn) return;
+  dest = { p, label }; route = null; drawRoute();
+  sheet(label, 'แตะปุ่มเพื่อหาเส้นทางจากตำแหน่งของคุณ', '🧭 เส้นทางไปที่นี่');
+}
+function closeNav() {
+  navOn = false; route = null; dest = null; drawRoute();
+  if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  if (pin) { pin.remove(); pin = null; }
+  $('nav').style.display = 'none'; document.body.classList.remove('navopen', 'navactive');
+}
+function say(text) {
+  if (!voice || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text.replace(/กม\./g, 'กิโลเมตร').replace(/ม\./g, 'เมตร').replace(/·/g, ' '));
+  u.lang = 'th-TH'; speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+
+async function planRoute() {
+  sheet(dest.label, 'กำลังหาตำแหน่งของคุณ…', null);
+  let from;
+  try { from = await locate(); }
+  catch { sheet(dest.label, 'หาตำแหน่งไม่ได้ — เปิดโลเคชั่นและอนุญาตให้เว็บนี้ใช้ตำแหน่ง แล้วลองใหม่', '🧭 ลองใหม่'); return false; }
+  showMe(from);
+  sheet(dest.label, 'กำลังคำนวณเส้นทาง…', null);
+  try { route = await getRoute(from, dest.p); }
+  catch { sheet(dest.label, 'คำนวณเส้นทางไม่ได้ — ตรวจอินเทอร์เน็ต หรือปลายทางอาจไปด้วยรถไม่ได้', '🧭 ลองใหม่'); return false; }
+  drawRoute(); lastSpoken = null; offCount = 0;
+  return true;
+}
+function previewText() {
+  return `${fmtD(route.dist)} · ${fmtT(route.dur)}` + (route.traffic ? ' (รวมจราจรสด)' : ' (ไม่รวมจราจร)');
+}
+async function onGo() {
+  if (!dest) return;
+  if (!route) {                       // ขั้นที่ 1: หาเส้นทาง + แสดงภาพรวม
+    if (!await planRoute()) return;
+    const b = route.coords.reduce((bb, c) => bb.extend(c), new maplibregl.LngLatBounds(route.coords[0], route.coords[0]));
+    map.fitBounds(b, { padding: { top: 90, bottom: 190, left: 50, right: 50 }, pitch: 0, bearing: 0 });
+    sheet(dest.label, previewText(), '▶ เริ่มนำทาง', 'ยกเลิก');
+    return;
+  }
+  // ขั้นที่ 2: เริ่มนำทาง
+  navOn = true; document.body.classList.add('navactive');
+  sheet('เริ่มนำทาง', previewText(), null, 'จบการนำทาง');
+  say('เริ่มนำทาง ไป ' + dest.label);
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  watchId = navigator.geolocation.watchPosition(onPos, () => {}, { enableHighAccuracy: true, maximumAge: 1000 });
+}
+
+function snap(p) {     // จุดบนเส้นทางที่ใกล้ตำแหน่งปัจจุบันที่สุด
+  const c = route.coords; let best = { off: Infinity, i: 0, along: 0 };
+  for (let i = 0; i < c.length - 1; i++) {
+    const [ax, ay] = flat(p, c[i]), [bx, by] = flat(p, c[i + 1]);
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    const t = L ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L)) : 0;
+    const off = Math.hypot(ax + t * dx, ay + t * dy);
+    if (off < best.off) best = { off, i, along: route.cum[i] + t * Math.sqrt(L) };
+  }
+  return best;
+}
+async function onPos(g) {
+  const p = [g.coords.longitude, g.coords.latitude];
+  showMe(p);
+  if (!navOn || !route) return;
+  const s = snap(p);
+  if (s.off > 60) {                   // หลุดเส้นทาง → คำนวณใหม่
+    if (++offCount >= 3 && Date.now() - lastReroute > 10000) {
+      lastReroute = Date.now(); offCount = 0;
+      try { route = await getRoute(p, dest.p); drawRoute(); lastSpoken = null; say('คำนวณเส้นทางใหม่'); } catch {}
+    }
+    if (!navOn) return;
+  } else offCount = 0;
+
+  const along = s.along * route.dist / (route.cum[route.cum.length - 1] || 1);
+  const remain = Math.max(0, route.dist - along);
+  if (remain < 30) { say('ถึงจุดหมายแล้ว'); const l = dest.label; closeNav(); sheet('ถึงจุดหมายแล้ว', l, null); return; }
+  const next = route.steps.find(x => x.at > along + 5);
+  const main = next ? `อีก ${fmtD(next.at - along)} · ${next.text}` : 'ตรงไปจนถึงจุดหมาย';
+  const eta = new Date(Date.now() + route.dur * remain / route.dist * 1000).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  sheet(main, `เหลือ ${fmtD(remain)} · ${fmtT(route.dur * remain / route.dist)} · ถึง ${eta} น.`, null, 'จบการนำทาง');
+  if (next && next !== lastSpoken) { lastSpoken = next; say(main); }
+
+  const c = route.coords, hd = g.coords.heading;
+  const brg = (hd != null && !isNaN(hd) && g.coords.speed > 1) ? hd : bearingOf(c[s.i], c[Math.min(s.i + 1, c.length - 1)]);
+  map.easeTo({ center: p, bearing: brg, pitch: CONFIG.pitch, zoom: 17, duration: 1000, easing: t => t });
+}
+
+$('navGo').onclick = onGo;
+$('navClose').onclick = closeNav;
+$('navVoice').onclick = () => {
+  voice = !voice; store.set('opt_voice', voice); $('navVoice').textContent = voice ? '🔊' : '🔇';
+  if (!voice && window.speechSynthesis) speechSynthesis.cancel();
+};
+
+// กดค้างบนแผนที่ (หรือคลิกขวา) = เลือกจุดนั้นเป็นปลายทาง
+let pressTimer;
+map.on('contextmenu', e => goTo([e.lngLat.lng, e.lngLat.lat], 'จุดที่เลือก', false));
+map.on('touchstart', e => {
+  clearTimeout(pressTimer);
+  if (e.points.length !== 1) return;
+  const ll = [e.lngLat.lng, e.lngLat.lat];
+  pressTimer = setTimeout(() => goTo(ll, 'จุดที่เลือก', false), 650);
+});
+for (const ev of ['touchend', 'touchcancel', 'touchmove', 'movestart']) map.on(ev, () => clearTimeout(pressTimer));
 
 // ---- UI ----
 const panel = document.querySelector('.panel');
