@@ -91,7 +91,17 @@ final class Assistant {
     static String claudeKey(Context c) { String k = App.prefs(c).getString("claudeKey", "").trim(); if (k.isEmpty()) k = sessionClaudeKey; return k.isEmpty() ? App.spareKey(c, "claudeKey") : k; }
     static String openAiKey(Context c) { String k = App.prefs(c).getString("openaiKey", "").trim(); if (k.isEmpty()) k = sessionOpenAiKey; return k.isEmpty() ? App.spareKey(c, "openaiKey") : k; }
 
+    private volatile boolean hadMusic;      // the phone's music was playing when the co-pilot started; it must be playing again when it finishes
+    private final Runnable musicBack = new Runnable() {
+        @Override public void run() {
+            // Some head units pause the phone when another app speaks and then never start it again. Ask for it, once things have settled.
+            if (hadMusic && state == State.IDLE && !CallWatch.inCall) { hadMusic = false; NowPlaying.get().resume(); }
+        }
+    };
+
     private void show(final State s, final String line) {
+        if (state == State.IDLE && s != State.IDLE) { ui.removeCallbacks(musicBack); if (!hadMusic) hadMusic = Boolean.TRUE.equals(NowPlaying.get().playing); }
+        if (s == State.IDLE) { ui.removeCallbacks(musicBack); ui.postDelayed(musicBack, 1500); }
         state = s;
         ui.post(new Runnable() { @Override public void run() { if (listener != null) listener.changed(s, line); } });
     }

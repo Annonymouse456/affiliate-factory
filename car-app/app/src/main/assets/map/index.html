@@ -335,7 +335,8 @@
   /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
   function go(query) {
     if (!here) return host.result(JSON.stringify({ ok: false, why: 'no gps' }));
-    find(query, function (place) {
+    var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(query);        // "latitude,longitude": no search needed
+    (exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
       ways(here, place.at, function (r) {
         start(r, place.name, place.at);
         host.save('route', query);
