@@ -144,15 +144,19 @@ public class MapService extends Service {
                     if (!is3d && !lite3d) return;
                     why3d = "แผนที่ 3D เปิดไม่ได้บนจอนี้ ใช้แบบ 2D แทน (" + engine() + ": " + reason + ")";
                     tell(why3d);
-                    load();
+                    MapService.this.load();
                 } });
             }
             @JavascriptInterface public void status(final String line) { ui.post(new Runnable() { @Override public void run() { tell("3D " + line); } }); }
             @JavascriptInterface public void save(String name, String value) {
                 try {
                     if (kept != null && "headingUp".equals(name)) kept.edit().putBoolean("headingUp", "1".equals(value)).apply();
-                    if (kept != null && "voice".equals(name)) kept.edit().putBoolean("voice", "1".equals(value)).apply();
+                    else if (kept != null && "voice".equals(name)) kept.edit().putBoolean("voice", "1".equals(value)).apply();
+                    else if (kept != null && "saved".equals(name)) kept.edit().putString("saved", value).apply();      // home, work, favourites, the trip under way, today's usage
                 } catch (Throwable ignored) { }
+            }
+            @JavascriptInterface public String load(String name) {
+                try { return kept != null && "saved".equals(name) ? kept.getString("saved", "") : ""; } catch (Throwable e) { return ""; }
             }
             @JavascriptInterface public void speak(final String text) {          // a turn instruction to be said aloud; the dashboard's process owns the voice
                 ui.post(new Runnable() { @Override public void run() {
