@@ -24,6 +24,18 @@ final class PhoneAsk {
     static final int PORT = 8766;
 
     private volatile ServerSocket server;
+    private final java.util.concurrent.atomic.AtomicInteger busy = new java.util.concurrent.atomic.AtomicInteger();
+    private int wrong;                      // wrong codes in a row
+    private long lockedUntil;               // after several, nothing is accepted for a while: four digits must not be guessable by trying them all
+
+    private synchronized boolean check(String given) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now < lockedUntil) return false;
+        if (code.equals(given)) { wrong = 0; return true; }
+        if (!given.isEmpty() && ++wrong >= 5) { wrong = 0; lockedUntil = now + 5 * 60 * 1000; }
+        return false;
+    }
+    private synchronized boolean locked() { return android.os.SystemClock.elapsedRealtime() < lockedUntil; }
     private final String code;
     private final Context app;
 
@@ -37,8 +49,10 @@ final class PhoneAsk {
                 while (server == s) {
                     try {
                         final Socket client = s.accept();
+                        if (busy.get() >= 6) { try { client.close(); } catch (Throwable ignored) { } continue; }      // a handful at a time is plenty for one phone
+                        busy.incrementAndGet();
                         new Thread(new Runnable() { @Override public void run() {       // one thread per request: an answer can take a while
-                            try { serve(client); } catch (Throwable ignored) { } finally { try { client.close(); } catch (Throwable ignored) { } }
+                            try { serve(client); } catch (Throwable ignored) { } finally { busy.decrementAndGet(); try { client.close(); } catch (Throwable ignored) { } }
                         } }).start();
                     } catch (Throwable e) { if (server != s) break; }
                 }
@@ -65,7 +79,9 @@ final class PhoneAsk {
         InputStream in = client.getInputStream();
         ByteArrayOutputStream head = new ByteArrayOutputStream();
         int matched = 0;
+        long deadline = android.os.SystemClock.elapsedRealtime() + 10000;       // for the whole request line and headers, not for each byte
         while (matched < 4 && head.size() < 16000) {
+            if (android.os.SystemClock.elapsedRealtime() > deadline) return;
             int b = in.read();
             if (b < 0) break;
             head.write(b);
@@ -83,7 +99,8 @@ final class PhoneAsk {
             while (got < length) { int n = in.read(body, got, length - got); if (n < 0) break; got += n; }
             form = new String(body, 0, got, "UTF-8");
         }
-        boolean allowed = code.equals(field(form, "c"));
+        boolean allowed = check(field(form, "c"));
+        if (locked()) { reply(client, "text/plain; charset=utf-8", "ใส่รหัสผิดหลายครั้ง รอ 5 นาทีแล้วลองใหม่"); return; }
         String question = field(form, "q");
         String link = field(form, "link");
         String sent = allowed && !link.isEmpty() ? sendPlace(link, !field(form, "stop").isEmpty()) : "";

@@ -117,6 +117,6 @@ public class GaugeView extends View {
             CharSequence fit = TextUtils.ellipsize(roadName, road, r * 1.25f, TextUtils.TruncateAt.END);
             c.drawText(fit, 0, fit.length(), cx, cy + r * 0.86f, road);
         }
-        if (moving) postInvalidateDelayed(33);
+        if (moving) postInvalidateDelayed(40);
     }
 }

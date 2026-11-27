@@ -4,23 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>แผนที่ในจอขับขี่</title>
-<script>
-  // one page, two ways of drawing: "#3d" asks for the tilted map, which needs a different library
-  document.write(/3d/.test(location.hash)
-    ? '<link rel="stylesheet" href="maplibre-gl.css"><script src="maplibre-gl.js"><\/script>'
-    : '<link rel="stylesheet" href="leaflet.css"><script src="leaflet.js"><\/script>');
-</script>
+<link rel="stylesheet" href="leaflet.css">
+<script src="leaflet.js"></script>
 <!--
-  The map panel of the car display. A light, flat cousin of the 3D map in /map/: the same sources
-  (TomTom tiles, traffic, search and routing when a key is present; OSRM and Photon otherwise), drawn
-  with picture tiles instead of 3D so a small head unit can keep up. Written for old browsers on purpose.
+  The map panel of the car display: a flat map drawn with picture tiles, kept light so a small head
+  unit can keep up. TomTom tiles, traffic, search and routing when a key is present; CARTO tiles, OSRM
+  and Photon otherwise. Written for old browsers on purpose.
   The app feeds it the car's position; nothing here asks the browser for location.
 -->
 <style>
   html, body { height: 100%; margin: 0; overflow: hidden; background: #0b0f17; color: #eef3f7;
     font-family: "Noto Sans Thai", "Roboto", sans-serif; -webkit-user-select: none; user-select: none; }
   #view { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; }
-  #spin { position: absolute; left: 50%; top: 50%; transition: transform .6s linear; -webkit-transition: -webkit-transform .6s linear; }
+  #spin { position: absolute; left: 50%; top: 50%; will-change: transform; transition: transform .6s linear; -webkit-transition: -webkit-transform .6s linear; }
   #map { width: 100%; height: 100%; background: #0b0f17; }
   .leaflet-container { background: #0b0f17; }
   .car { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
@@ -124,16 +120,15 @@
   var route = null, at = 0, along = 0, off = 0, lastReroute = 0, stamp = Date.now();
   var freeTimer = null, sayTimer = null;
 
-  var GL = /3d/.test(location.hash);       // the tilted 3D map, asked for by the app; otherwise flat picture tiles
-  var view;                                // whichever one is drawing; the rest of this page speaks to it only through these few functions
+  var view;                                // the map itself; the rest of this page speaks to it only through a few functions
 
   // A bright map by day and a dark one after sunset: roads stand out far better on the bright one, and the dark one does not glare at night.
   var forced = 0;                        // set by the app: 2 means night colours now (the display was dimmed, or the headlights are on)
   function isDay() { if (forced === 2) return false; if (forced === 1) return true; var h = new Date().getHours(); return h >= 6 && h < 18; }
   var day = isDay();
   function look3() {
-    return day ? { ground: '#e9ecef', way: '#1766ff', edge: '#ffffff', gone: '#8c96a6', building: '#c5ccd8' }
-               : { ground: '#0b0f17', way: '#4da6ff', edge: '#06142e', gone: '#5d6878', building: '#3a4a6b' };
+    return day ? { ground: '#e9ecef', way: '#1766ff', edge: '#ffffff', gone: '#8c96a6' }
+               : { ground: '#0b0f17', way: '#5fb0ff', edge: '#ffffff', gone: '#6b7686' };
   }
   function baseUrl() {
     return paid() ? T + '/map/1/tile/basic/' + (day ? 'main' : 'night') + '/{z}/{x}/{y}.png?key=' + key + '&language=th-TH'
@@ -191,13 +186,13 @@
 
   function flatView() {
     var turned = 0;                        // the map's rotation, kept continuous so it never spins the long way
-    var map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, fadeAnimation: false, zoomSnap: 1,
+    var map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, zoomSnap: 1,
       inertia: false, doubleClickZoom: false, dragging: false }).setView([13.7563, 100.5018], 12);
     var base = L.tileLayer('', { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true, subdomains: 'abcd' });
     var flow = L.tileLayer('', { maxZoom: 19, opacity: 0.8, zIndex: 5, keepBuffer: 0, updateWhenIdle: true });
-    var edge = L.polyline([], { color: look3().edge, weight: 15, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
-    var line = L.polyline([], { color: look3().way, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
-    var done = L.polyline([], { color: look3().gone, weight: 9, opacity: 1, interactive: false });
+    var edge = L.polyline([], { color: look3().edge, weight: 15, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false, smoothFactor: 2 });
+    var line = L.polyline([], { color: look3().way, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false, smoothFactor: 2 });
+    var done = L.polyline([], { color: look3().gone, weight: 9, opacity: 1, interactive: false, smoothFactor: 2 });
     var pinsNow = [], marksNow = [];
     var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
     base.on('tileerror', tileFailed);
@@ -227,7 +222,7 @@
         base.setUrl(baseUrl());
         if (!map.hasLayer(base)) base.addTo(map);
         document.body.style.background = $('map').style.background = look3().ground;
-        try { var f = day ? '' : 'brightness(1.5) contrast(1.1)'; base.getContainer().style.webkitFilter = f; base.getContainer().style.filter = f; } catch (e) { }      // lift the night map: as drawn it is too dim to read in a car
+        // (no image filter on the tiles: it has to be re-applied on every frame while the map moves, which this class of hardware cannot afford)
         edge.setStyle({ color: look3().edge }); line.setStyle({ color: look3().way }); done.setStyle({ color: look3().gone });
         if (paid()) { flow.setUrl(flowUrl()); if (!map.hasLayer(flow)) flow.addTo(map); } else if (map.hasLayer(flow)) flow.remove();
         this.ready = true;
@@ -263,136 +258,7 @@
     };
   }
 
-  // ---------------------------------------------------------------- the 3D map: tilted, with buildings standing up, drawn by the graphics chip
-
-  function tiltView() {
-    if (!window.maplibregl || !maplibregl.supported()) throw new Error('no WebGL');
-    var spin = $('spin').style;
-    spin.width = '100%'; spin.height = '100%'; spin.left = '0'; spin.top = '0'; spin.transition = 'none';
-    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMarks = [], camMarks = [], lin = function (t) { return t; };
-    function style() {
-      var urls = [], sub = paid() ? [''] : ['a', 'b', 'c', 'd'];
-      for (var i = 0; i < sub.length; i++) urls.push(baseUrl().replace('{s}', sub[i]));
-      return { version: 8, sources: { base: { type: 'raster', tiles: urls, tileSize: 256, maxzoom: 19 } },
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': look3().ground } },
-          { id: 'base', type: 'raster', source: 'base', paint: day ? {} : { 'raster-brightness-min': 0.12, 'raster-contrast': 0.25, 'raster-saturation': 0.2 } }] };
-    }
-    var m = new maplibregl.Map({ container: 'map', style: style(), center: [100.5018, 13.7563], zoom: 11, attributionControl: false,
-      dragRotate: false, pitchWithRotate: false, fadeDuration: 0, antialias: false, renderWorldCopies: false });
-    try { m.touchZoomRotate.disableRotation(); } catch (e) { }
-    function geo(pts) {
-      var c = [];
-      for (var i = 0; i < pts.length; i++) c.push([pts[i][1], pts[i][0]]);
-      return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: c } };
-    }
-    function flowLayer() {
-      if (!paid() || m.getSource('flow')) return;
-      m.addSource('flow', { type: 'raster', tiles: [flowUrl()], tileSize: 256, maxzoom: 19 });
-      m.addLayer({ id: 'flow', type: 'raster', source: 'flow', paint: { 'raster-opacity': 0.8 } }, m.getLayer('route-edge') ? 'route-edge' : undefined);
-    }
-    function buildingLayer() {
-      if (!buildings || m.getLayer('buildings')) return;
-      if (!m.getSource('osm')) m.addSource('osm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
-      m.addLayer({ id: 'buildings', type: 'fill-extrusion', source: 'osm', 'source-layer': 'building', minzoom: 14.5,
-        paint: { 'fill-extrusion-color': look3().building, 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 9],
-          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': 0.85 } });
-    }
-    function dress() {                     // everything laid over the base picture; put back each time the base changes
-      try {
-        flowLayer();
-        if (!m.getSource('route')) {
-          m.addSource('route', { type: 'geojson', data: geo(routePts) });
-          m.addLayer({ id: 'route-edge', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().edge, 'line-width': 16 } });
-          m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().way, 'line-width': 10 } });
-          m.addSource('done', { type: 'geojson', data: geo(donePts) });
-          m.addLayer({ id: 'done', type: 'line', source: 'done', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().gone, 'line-width': 10 } });
-        }
-        buildingLayer();
-      } catch (e) { }
-    }
-    m.on('style.load', dress);
-    m.on('error', function (e) { if (e && e.sourceId === 'base') tileFailed(); });
-    m.on('data', function (e) {
-      if (!e || !e.tile) return;
-      if (e.sourceId === 'base') tileLoaded();
-      if (paid() && (e.sourceId === 'base' || e.sourceId === 'flow')) used('tiles');
-    });
-    m.on('move', function () { if (follow && carMark && here) carMark.setLngLat(m.getCenter()); });      // while following, the car is the middle of the picture: keep it glued there between fixes
-
-    function camera(z, quick) {
-      var o = { center: [here[1], here[0]], bearing: headingUp ? bearing : 0, pitch: headingUp ? tilt : 0,
-        padding: { top: headingUp ? Math.round(window.innerHeight * 0.3) : 0, bottom: route ? 104 : 0, left: 0, right: 0 } };      // keep the car clear of the trip card, with more road ahead than behind
-      if (z != null) o.zoom = z - 1;       // this map counts zoom one lower than picture-tile maps for the same scale
-      if (quick) m.jumpTo(o); else { o.duration = 950; o.easing = lin; m.easeTo(o); }
-    }
-
-    // How smoothly is it drawing? Time the gaps between frames while the map moves; when it clearly struggles, give up the costliest parts in turn.
-    var gaps = [], lastFrame = 0, slow = 0, told = 0;
-    m.on('render', function () {
-      var now = Date.now();
-      if (lastFrame && now - lastFrame < 500) gaps.push(now - lastFrame);
-      lastFrame = now;
-      if (gaps.length < 50) return;
-      var sum = 0;
-      for (var i = 0; i < gaps.length; i++) sum += gaps[i];
-      var fps = Math.round(1000 / (sum / gaps.length));
-      gaps = [];
-      if (now - told > 30000) { told = now; host.status('fps ' + fps); }
-      slow = fps < 10 ? slow + 1 : 0;
-      if (slow < 3) return;
-      slow = 0;
-      if (buildings) { buildings = false; try { m.removeLayer('buildings'); } catch (e) { } host.status('eased buildings off at fps ' + fps); }
-      else if (tilt > 35) { tilt = 35; host.status('eased tilt to 35 at fps ' + fps); }
-    });
-
-    return {
-      ready: false,
-      centre: function () { var c = m.getCenter(); return [c.lat, c.lng]; },
-      zoom: function () { return Math.round(m.getZoom()) + 1; },
-      setZoom: function (z) { m.easeTo({ zoom: z - 1, duration: 300 }); },
-      tiles: function () { m.setStyle(style(), { diff: false }); this.ready = true; },
-      traffic: function () { try { if (m.getLayer('flow')) m.removeLayer('flow'); if (m.getSource('flow')) m.removeSource('flow'); flowLayer(); } catch (e) { } },
-      colour: function () {
-        if (carMark) carMark.getElement().innerHTML = arrowSvg();
-      },
-      route: function (pts) { routePts = pts || []; if (!pts) donePts = []; try { m.getSource('route').setData(geo(routePts)); if (!pts) m.getSource('done').setData(geo([])); } catch (e) { } },
-      gone: function (pts) { donePts = pts; try { m.getSource('done').setData(geo(pts)); } catch (e) { } },
-      pins: function (stops) {
-        for (var i = 0; i < pinMarks.length; i++) pinMarks[i].remove();
-        pinMarks = [];
-        for (i = 0; i < stops.length; i++) {
-          var el = document.createElement('div');
-          el.innerHTML = pinSvg(i === stops.length - 1);
-          pinMarks.push(new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([stops[i].at[1], stops[i].at[0]]).addTo(m));
-        }
-      },
-      mode: function () { m.resize(); if (here && follow) camera(null, true); },
-      resize: function () { m.resize(); },
-      show: function (first, z) {
-        if (!carMark) {
-          var el = document.createElement('div');
-          el.style.width = '56px'; el.style.height = '56px';
-          el.innerHTML = arrowSvg();
-          carMark = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([here[1], here[0]]).addTo(m);
-        }
-        carMark.setRotation(bearing);
-        if (follow) camera(z, first); else carMark.setLngLat([here[1], here[0]]);
-      },
-      jump: function (z) { camera(z, true); if (carMark) carMark.setLngLat([here[1], here[0]]); },
-      marks: function (list) {
-        for (var i = 0; i < camMarks.length; i++) camMarks[i].remove();
-        camMarks = [];
-        for (i = 0; i < list.length; i++) {
-          var el = document.createElement('div');
-          el.innerHTML = CAM;
-          camMarks.push(new maplibregl.Marker({ element: el }).setLngLat([list[i].at[1], list[i].at[0]]).addTo(m));
-        }
-      },
-      onDrag: function (cb) { m.on('dragstart', function (e) { if (e && e.originalEvent) cb(); }); }
-    };
-  }
-
-  // ---------------------------------------------------------------- shared between the two
+  // ---------------------------------------------------------------- around the map
 
   setInterval(function () {
     if (isDay() === day || !view.ready) return;
@@ -439,7 +305,8 @@
     if (first) say('', 0);
     if (first && !route && saved.trip && saved.trip.stops && saved.trip.stops.length && Date.now() - saved.trip.t < 12 * 3600 * 1000) {
       var kept = saved.trip.stops;                     // a trip was under way when the display last closed: carry on with it
-      setTimeout(function () { if (!route) plan(kept, null, null, 'resume'); }, 1500);
+      if (metres(here, kept[kept.length - 1].at) < 400) { delete saved.trip; keep(); }      // parked beside the destination: that trip is over
+      else setTimeout(function () { if (!route) plan(kept, null, null, 'resume'); }, 1500);
     }
     view.show(first, follow && autoZoom ? wantedZoom() : null);
     if (route) progress();
@@ -572,6 +439,12 @@
         var r = list[n];
         r.cum = [0];
         for (var i = 1; i < r.pts.length; i++) r.cum[i] = r.cum[i - 1] + metres(r.pts[i - 1], r.pts[i]);
+        // The service's own distances and ours differ by a fraction of a percent, which over a long trip becomes hundreds of
+        // metres: turns would be called early. Put every distance on our measure of the drawn line.
+        var whole = r.cum[r.cum.length - 1], k = r.dist > 0 ? whole / r.dist : 1, e;
+        for (e = 0; e < r.steps.length; e++) r.steps[e].at = r.steps[e].point != null && r.cum[r.steps[e].point] != null ? r.cum[r.steps[e].point] : r.steps[e].at * k;
+        for (e = 0; e < r.ends.length; e++) r.ends[e] = r.endPts && r.cum[r.endPts[e]] != null ? r.cum[r.endPts[e]] : r.ends[e] * k;
+        r.dist = whole;
       }
       list.sort(function (a, b) { return a.dur - b.dur; });
       ok(list[0], list);
@@ -620,9 +493,9 @@
               break;
             }
           }
-          var ends = [], run = 0;
-          for (l = 0; l < rt.legs.length; l++) { run += (rt.legs[l].summary || {}).lengthInMeters || 0; ends.push(run); }
-          list.push({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps, ends: ends, toll: toll });
+          var ends = [], endPts = [], run = 0, count = 0;
+          for (l = 0; l < rt.legs.length; l++) { run += (rt.legs[l].summary || {}).lengthInMeters || 0; ends.push(run); count += rt.legs[l].points.length; endPts.push(count - 1); }
+          list.push({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps, ends: ends, endPts: endPts, toll: toll });
         }
         if (!list.length) return osrm(!!saved.noToll);
         finish(list);
@@ -634,13 +507,17 @@
     tomtom(lanesAsk);
   }
 
+  function put(id, text) { var el = $(id); if (el.textContent !== text) el.textContent = text; }
   function far(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' กม.' : Math.max(10, Math.round(m / 10) * 10) + ' ม.'; }
   function lasting(s) { var m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที' : m + ' นาที'; }
 
   // ---------------------------------------------------------------- spoken turn instructions
 
+  var iconNow = '';
+  var goneAt = -1, goneDrawn = 0;        // when the travelled part of the line was last redrawn
   var voiceOn = true, spoken = { id: -1, from: 0, done: {} };
-  function speak(text) { if (voiceOn && text) host.speak(text); }
+  var spokeAt = 0;
+  function speak(text) { if (voiceOn && text) { spokeAt = Date.now(); host.speak(text); } }
   function farWords(m) {
     if (m >= 1000) { var k = m >= 10000 ? String(Math.round(m / 1000)) : (Math.round(m / 100) / 10).toFixed(1).replace('.0', ''); return k + ' กิโลเมตร'; }
     return Math.max(50, Math.round(m / 50) * 50) + ' เมตร';
@@ -658,7 +535,7 @@
   function announce(next, d) {
     if (spoken.id !== next.at) {
       spoken = { id: next.at, from: d, done: {} };
-      if (d > 2600) { speak('ตรงไปอีก ' + farWords(d)); return; }
+      if (d > 2600) { if (Date.now() - spokeAt > 6000) speak('ตรงไปอีก ' + farWords(d)); return; }      // not on top of the trip's opening words, which already give the distance
     }
     var marks = [300, 700, 2000], now = Math.max(50, kmh * 1.5);      // "now" is said earlier at speed, to allow for the moment it takes to fetch the voice
     if (d <= now) { if (!spoken.done.now) { spoken.done = { now: 1, 300: 1, 700: 1, 2000: 1 }; speak(next.text); } return; }
@@ -687,6 +564,7 @@
     $('warn').style.display = 'none';
     skin();
     spoken = { id: -1, from: 0, done: {} };
+    goneAt = -1; lanesNow = '';
     saved.trip = { stops: stops, t: Date.now() };              // so the trip carries on after a stop for fuel
     if (!how) remember(last);
     keep();
@@ -699,7 +577,13 @@
     progress();
   }
 
-  function plan(stops, ok, fail, how) { ways(here, stops, function (r, all) { start(r, stops, how, all); if (ok) ok(r); }, fail || function () { }); }
+  var planNo = 0, planning = false;      // each request to plan is numbered; an answer that has been overtaken by a newer request is dropped
+  function plan(stops, ok, fail, how) {
+    var mine = ++planNo;
+    planning = true;
+    ways(here, stops, function (r, all) { if (mine !== planNo) return; planning = false; start(r, stops, how, all); if (ok) ok(r); },
+      function (why) { if (mine !== planNo) return; planning = false; if (fail) fail(why); });
+  }
 
   function remember(place) {             // the last few places guided to, newest first
     var list = [{ at: place.at, name: place.name }];
@@ -739,13 +623,15 @@
     if (!near || d > 700) { $('warn').style.display = 'none'; return; }
     $('warn').style.display = 'block';
     $('warn').textContent = 'กล้องจับความเร็ว ' + far(Math.max(0, d)) + (near.limit ? '  ·  จำกัด ' + near.limit : '');
-    if (!near.told) { near.told = true; speak('ข้างหน้ามีกล้องจับความเร็ว อีก ' + farWords(d) + (near.limit ? ' จำกัดความเร็ว ' + near.limit : '')); }
+    // wait for a turn instruction to finish rather than cut it off
+    if (!near.told && Date.now() - spokeAt > 5000) { near.told = true; speak('ข้างหน้ามีกล้องจับความเร็ว อีก ' + farWords(d) + (near.limit ? ' จำกัดความเร็ว ' + near.limit : '')); }
   }
 
   // ---------------------------------------------------------------- lanes at the coming turn
 
   var TILT = { 'left': -90, 'slight left': -45, 'sharp left': -135, 'straight': 0, 'through': 0, 'none': 0, 'slight right': 45, 'right': 90, 'sharp right': 135,
     'uturn': 180, 'left u turn': 180, 'right u turn': 180, 'merge to left': -30, 'merge to right': 30 };
+  var lanesNow = '';
   function showLanes(lanes, d) {
     var box = $('lanes');
     if (!lanes || d > 900) { box.style.display = 'none'; return; }
@@ -758,7 +644,7 @@
       }
       html += '<span class="' + (lanes[i].ok ? 'ok' : '') + '">' + inner + '</span>';
     }
-    box.innerHTML = html;
+    if (html !== lanesNow) { lanesNow = html; box.innerHTML = html; }
     box.style.display = 'block';
   }
   /** "keep left" and the like, when the lanes to use are all on one side. */
@@ -776,6 +662,7 @@
     route = null;
     view.route(null); view.pins([]); view.marks([]);
     $('warn').style.display = 'none'; $('lanes').style.display = 'none'; closeOpts();
+    planNo++; planning = false;
     if (!quiet) { delete saved.trip; keep(); }
     skin();
     $('trip').style.display = 'none';
@@ -799,26 +686,26 @@
     var gone = route.cum[at] + (route.cum[at + 1] - route.cum[at]) * along || 0, left = route.dist - gone;
     if (off >= 6 && Date.now() - lastReroute > 20000) {            // left the route for a few seconds: plan again from here
       lastReroute = Date.now(); off = 0;
-      var held = route.stops;
-      ways(here, held, function (r, all) { if (route) start(r, held, 'again', all); }, function () { });
+      if (planning) return;                // the driver has just asked for something else: let that answer come
+      plan(route.stops, null, null, 'again');
       return;
     }
-    if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); speak('ถึงจุดหมายแล้ว'); return; }
+    if (left < 40 || metres(here, route.to) < 60) { clear(false); say('ถึงจุดหมายแล้ว', 10); speak('ถึงจุดหมายแล้ว'); return; }
     // a stop is reached when the car comes to the point on the route nearest to it; it then drops off the list and the way carries on
     while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { speak('ถึงจุดแวะ ' + route.stops[0].name + ' แล้ว'); route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); saved.trip = { stops: route.stops, t: Date.now() }; keep(); }
     $('tripName').textContent = route.stops.length > 1
       ? 'แวะ ' + route.stops[0].name + ' อีก ' + far(Math.max(0, (route.ends ? route.ends[0] : 0) - gone)) + (route.stops.length > 2 ? '  (+' + (route.stops.length - 2) + ' จุด)' : '') + '  →  ' + route.name
       : route.name;
-    view.gone(route.pts.slice(0, at + 1).concat([here]));
+    if (at !== goneAt || Date.now() - goneDrawn > 4000) { goneAt = at; goneDrawn = Date.now(); view.gone(route.pts.slice(0, at + 1).concat([here])); }
     var secs = route.dur * left / Math.max(1, route.dist), there = new Date(Date.now() + secs * 1000);
-    $('tripMain').textContent = lasting(secs);
-    $('tripSub').textContent = far(left) + '  ·  ถึง ' + ('0' + there.getHours()).slice(-2) + ':' + ('0' + there.getMinutes()).slice(-2);
+    put('tripMain', lasting(secs));
+    put('tripSub', far(left) + '  ·  ถึง ' + ('0' + there.getHours()).slice(-2) + ':' + ('0' + there.getMinutes()).slice(-2));
     var next = null;
     for (var s = 0; s < route.steps.length; s++) if (route.steps[s].at > gone + 8) { next = route.steps[s]; break; }
     if (!next) next = { text: 'ถึงจุดหมาย', at: route.dist, kind: 'arrive' };
-    $('turnIcon').innerHTML = icon(next.kind);
-    $('turnFar').textContent = far(next.at - gone);
-    $('turnText').textContent = next.text;
+    if (next.kind !== iconNow) { iconNow = next.kind; $('turnIcon').innerHTML = icon(next.kind); }
+    put('turnFar', far(next.at - gone));
+    put('turnText', next.text);
     showLanes(next.lanes, next.at - gone);
     announce(next, next.at - gone);
     watchCameras(gone);
@@ -850,8 +737,8 @@
     }, function (why) { host.result(JSON.stringify({ ok: false, why: 'place: ' + why })); });
   }
 
-  try { view = GL ? tiltView() : flatView(); }
-  catch (e) { host.fail(String((e && e.message) || e)); throw e; }          // the app then shows the flat map instead
+  try { view = flatView(); }
+  catch (e) { host.fail(String((e && e.message) || e)); throw e; }
 
   // ---------------------------------------------------------------- keys on the map
 

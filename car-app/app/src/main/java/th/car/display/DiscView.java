@@ -79,6 +79,6 @@ public class DiscView extends View {
         c.drawCircle(cx, cy, r * 0.17f, hub);
         hub.setColor(0x99FFFFFF);
         c.drawCircle(cx, cy, r * 0.045f, hub);
-        if (playing) postInvalidateDelayed(40);
+        if (playing) postInvalidateDelayed(70);
     }
 }

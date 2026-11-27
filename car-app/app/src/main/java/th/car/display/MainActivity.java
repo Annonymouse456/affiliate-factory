@@ -71,7 +71,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 5.2";
+    private static final String VERSION = "แอป 5.3";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -112,9 +112,9 @@ public class MainActivity extends Activity {
         note(VERSION + " · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · " + Build.MODEL);
         Updater.peek(this, new Updater.Say() { @Override public void line(String text) { note(text); } });
 
-        String crash = prefs().getString("crash", null);
+        String crash = App.prefs(this).getString("crash", null);
         if (crash != null) {                 // show the last crash so a photo of the screen explains it
-            prefs().edit().remove("crash").apply();
+            App.prefs(this).edit().remove("crash").apply();
             showInfo("แอปปิดตัวเองครั้งก่อน ถ่ายรูปข้อความนี้ส่งในแชท\n\n" + crash);
         }
 
@@ -439,9 +439,15 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle("พิมพ์คำถามทดสอบ").setView(box)
                 .setPositiveButton("ถาม", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
                     showInfo("กำลังถาม Claude… อาจใช้เวลาถึงครึ่งนาทีถ้าต้องค้นเว็บ");
-                    Assistant.get().attach(MainActivity.this, null, new Assistant.Listener() {
-                        @Override public void changed(Assistant.State state, String line) { if (state == Assistant.State.IDLE && line != null) showInfo("คำตอบ:\n" + line + "\n\n" + Assistant.usage(MainActivity.this)); }
-                    });
+                    Assistant.Listener hear = new Assistant.Listener() {
+                        @Override public void changed(Assistant.State state, String line) {
+                            if (state != Assistant.State.IDLE || line == null) return;
+                            Assistant.get().alsoTell(null);
+                            showInfo("คำตอบ:\n" + line + "\n\n" + Assistant.usage(MainActivity.this));
+                        }
+                    };
+                    // while the display overlay is running it owns the co-pilot; listen in rather than take its place
+                    if (Assistant.get().attached()) Assistant.get().alsoTell(hear); else Assistant.get().attach(MainActivity.this, null, hear);
                     Assistant.get().askText(box.getText().toString(), false);
                 } })
                 .setNegativeButton("ยกเลิก", null).show();

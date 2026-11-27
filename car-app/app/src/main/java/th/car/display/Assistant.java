@@ -84,6 +84,10 @@ final class Assistant {
 
     void attach(Context c, Car car, Listener listener) { this.app = c.getApplicationContext(); this.car = car; this.listener = listener; }
     void detach(Listener l) { if (listener == l) { listener = null; car = null; } }
+    boolean attached() { return listener != null; }
+    /** One more pair of ears for the same answers, without unhooking the display that is already listening. */
+    void alsoTell(Listener extra) { this.extra = extra; }
+    private volatile Listener extra;
     State state() { return state; }
 
     // Keys also live in memory, so the co-pilot still works for this run on a head unit that cannot save them.
@@ -106,14 +110,14 @@ final class Assistant {
         if (state == State.IDLE && s != State.IDLE) { ui.removeCallbacks(musicBack); if (!hadMusic) hadMusic = Boolean.TRUE.equals(NowPlaying.get().playing); }
         if (s == State.IDLE) { ui.removeCallbacks(musicBack); ui.postDelayed(musicBack, 1500); }
         state = s;
-        ui.post(new Runnable() { @Override public void run() { if (listener != null) listener.changed(s, line); } });
+        ui.post(new Runnable() { @Override public void run() { if (listener != null) listener.changed(s, line); Listener x = extra; if (x != null) x.changed(s, line); } });
     }
 
     /** The one button: start listening; while listening, finish the question; while speaking, be quiet. */
     void tap() {
         if (app == null) return;
         if (CallWatch.inCall) { show(State.IDLE, "กำลังมีสายโทรศัพท์อยู่ ถาม AI ได้หลังวางสาย"); return; }
-        NavVoice.get().quiet();              // the driver wants to speak: a turn instruction must not talk over the question
+        if (NavVoice.get().quiet()) hadMusic = true;      // a turn instruction was cut short for the question; it had paused the music, which is still owed its restart
         if (state == State.LISTENING) { Recorder r = recorder; if (r != null) r.stop(); return; }
         if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); return; }
         if (state != State.IDLE) return;
@@ -145,6 +149,7 @@ final class Assistant {
         NavVoice.get().quiet();
         Recorder r = recorder;
         if (r != null) r.stop();
+        speakTurn++;
         if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); }
     }
 
@@ -207,9 +212,13 @@ final class Assistant {
     }
 
     /** Read the answer aloud. If speech fails the written answer stays on the card, with the reason. */
+    private volatile int speakTurn;         // changes whenever speaking is stopped, so a voice still being fetched knows it is no longer wanted
+
     private void speak(final String text, AudioManager audio) {
         try {
+            final int turn = speakTurn;
             final byte[] mp3 = new Speech(openAiKey(app)).speak(text, femaleVoice(app));
+            if (turn != speakTurn || CallWatch.inCall) { audio.abandonAudioFocus(null); if (state == State.SPEAKING) show(State.IDLE, text); return; }      // stopped, or a call began, while the voice was on its way
             audio.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
             MediaPlayer p = new MediaPlayer();
             player = p;
@@ -251,6 +260,7 @@ final class Assistant {
     }
 
     private void stopSpeaking() {
+        speakTurn++;
         MediaPlayer p = player;
         player = null;
         try { if (p != null) { p.stop(); p.release(); } } catch (Throwable ignored) { }
@@ -350,6 +360,7 @@ final class Assistant {
             String action = input.optString("action");
             int key = "next".equals(action) ? KeyEvent.KEYCODE_MEDIA_NEXT : "previous".equals(action) ? KeyEvent.KEYCODE_MEDIA_PREVIOUS : KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE;
             NowPlaying.get().press(key);
+            hadMusic = false;                // the driver has just taken charge of the music: do not start it again afterwards
             return "Sent " + action + " to the phone.";
         }
         if ("navigate_to".equals(name)) return navigate(input.optString("destination").trim(), input.optBoolean("as_stop"));
