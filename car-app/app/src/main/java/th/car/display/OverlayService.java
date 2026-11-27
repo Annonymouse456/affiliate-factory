@@ -111,7 +111,8 @@ public class OverlayService extends Service {
             else if (m.what == MapService.STATUS) {
                 String line = String.valueOf(m.getData().getString("line"));
                 NowPlaying.get().note("แผนที่: " + line);
-                if (line.contains("แทน")) { note(line); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 25000); }      // the 3D map could not be used: say why on the screen, for a while
+                if (line.contains("tomtom tiles")) { note("แผนที่ TomTom ไม่ตอบ (อาจใช้เกินโควตาของวันนี้) ใช้แผนที่ฟรีแทนชั่วคราว จะไม่มีสีจราจร"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 20000); }
+                else if (line.contains("แทน")) { note(line); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 25000); }      // the 3D map could not be used: say why on the screen, for a while
                 else if (line.contains("eased")) { note(line.contains("tilt") ? "แผนที่ 3D ยังวาดช้า ลดมุมเอียงให้แล้ว ถ้ายังหน่วง แตะปุ่ม 3D มุมขวาบนเพื่อสลับเป็น 2D" : "แผนที่ 3D วาดช้า ปิดตึก 3D ให้แล้ว"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 15000); }
             }
         }
