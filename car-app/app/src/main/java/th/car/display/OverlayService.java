@@ -98,7 +98,7 @@ public class OverlayService extends Service {
     private PhoneAsk phoneAsk;
     // the map panel lives in its own process; see MapService
     private RectF mapAt;
-    private TextView mapNote;
+    private TextView mapNote, mapMode;
     private android.os.Messenger mapOut;
     private boolean mapBound, mapSeen, mapGaveUp;
     private int mapDrops;
@@ -110,7 +110,7 @@ public class OverlayService extends Service {
             else if (m.what == MapService.STATUS) {
                 String line = String.valueOf(m.getData().getString("line"));
                 NowPlaying.get().note("แผนที่: " + line);
-                if (line.contains("แทน")) note(line);            // the 3D map could not be used: say why on the screen
+                if (line.contains("แทน")) { note(line); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 25000); }      // the 3D map could not be used: say why on the screen, for a while
                 else if (line.contains("eased")) note("แผนที่ 3D วาดช้า ปิดตึก 3D ให้แล้ว ถ้ายังหน่วง แตะปุ่ม 3D มุมขวาบนเพื่อสลับเป็น 2D");
             }
         }
@@ -389,7 +389,7 @@ public class OverlayService extends Service {
         place(dash, noteD, besideL, hole.top, besideW, hole.height());
 
         // top right corner: switch between the full 3D map and the light flat one
-        final TextView mapMode = text(prefs.getBoolean("map3d", true) ? "3D" : "2D", 3f, INK, true);
+        mapMode = text(prefs.getBoolean("map3d", true) ? "3D" : "2D", 3f, INK, true);
         mapMode.setGravity(Gravity.CENTER);
         mapMode.setBackground(round(0x24FFFFFF, u * 2));
         mapMode.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
@@ -812,6 +812,7 @@ public class OverlayService extends Service {
         noteD.setVisibility(some ? View.VISIBLE : View.GONE);
         clockD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         dateD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
+        if (mapMode != null) mapMode.setVisibility(some ? View.INVISIBLE : View.VISIBLE);      // the words need that corner
         noteC.setText(some ? line : "");
         noteC.setVisibility(some ? View.VISIBLE : View.GONE);
     }

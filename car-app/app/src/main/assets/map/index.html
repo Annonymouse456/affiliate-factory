@@ -42,6 +42,14 @@
   #tripName { font-size: 14px; line-height: 18px; color: #c3ccd6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #stop { position: absolute; right: 4px; top: 50%; margin-top: -18px; width: 36px; height: 36px; line-height: 36px; text-align: center; font-size: 20px; color: #ff8d8d; }
 
+  #find { position: absolute; left: 8px; top: 8px; right: 68px; display: none; z-index: 2000; }
+  #q { width: 100%; height: 50px; box-sizing: border-box; padding: 0 54px 0 14px; border-radius: 14px; border: 2px solid rgba(255,255,255,.35);
+    background: rgba(12,17,26,.96); color: #eef3f7; font: inherit; font-size: 20px; outline: none; -webkit-appearance: none; -webkit-user-select: text; user-select: text; }
+  #qx { position: absolute; right: 0; top: 0; width: 50px; height: 50px; line-height: 50px; text-align: center; font-size: 22px; color: #c3ccd6; }
+  #hits { margin-top: 6px; border-radius: 14px; overflow: hidden; background: rgba(12,17,26,.96); }
+  #hits div { padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,.12); font-size: 18px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #hits div small { display: block; font-size: 13px; line-height: 17px; color: #9aa6b4; overflow: hidden; text-overflow: ellipsis; }
+  #hits div:active { background: rgba(60,75,100,.9); }
   #say { position: absolute; left: 8px; top: 8px; display: none; padding: 5px 11px; border-radius: 12px; font-size: 15px;
     background: rgba(12,17,26,.88); border: 1px solid rgba(255,255,255,.16); color: #c3ccd6; }
   #credit { position: absolute; right: 66px; bottom: 2px; font-size: 9px; color: rgba(255,255,255,.45); }
@@ -54,7 +62,10 @@
 <div id="turn"><span id="turnIcon"></span><div id="turnFar"></div><div id="turnText"></div></div>
 <div id="trip"><div id="tripMain"></div><div id="tripName"></div><div id="stop">✕</div></div>
 
+<div id="find"><input id="q" type="text" placeholder="พิมพ์ชื่อสถานที่ที่จะไป" autocomplete="off"><div id="qx">✕</div><div id="hits"></div></div>
+
 <div class="keys">
+  <div class="key" id="look"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></div>
   <div class="key" id="centre"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></div>
   <div class="key" id="mode"></div>
   <div class="key" id="in">+</div>
@@ -196,22 +207,34 @@
     return 6371000 * Math.sqrt(dx * dx + dy * dy);
   }
 
-  function find(query, ok, fail) {
+  /** Places matching some words, nearest first where the service allows: TomTom with a key, the free Photon service without. */
+  function places(query, most, ok, fail) {
+    var near = here || [map.getCenter().lat, map.getCenter().lng];
     var photon = function () {
-      get('https://photon.komoot.io/api/?limit=1&q=' + encodeURIComponent(query) + '&lat=' + here[0] + '&lon=' + here[1], function (j) {
-        var f = (j.features || [])[0];
-        if (!f) return fail('not found');
-        var p = f.properties || {};
-        ok({ at: [f.geometry.coordinates[1], f.geometry.coordinates[0]], name: p.name || p.street || query });
+      get('https://photon.komoot.io/api/?limit=' + most + '&q=' + encodeURIComponent(query) + '&lat=' + near[0] + '&lon=' + near[1], function (j) {
+        var out = [], fs = j.features || [];
+        for (var i = 0; i < fs.length; i++) {
+          var p = fs[i].properties || {}, name = p.name || p.street || query, where = [];
+          var parts = [p.street, p.district, p.city, p.state];
+          for (var k = 0; k < parts.length; k++) if (parts[k] && parts[k] !== name) where.push(parts[k]);
+          out.push({ at: [fs[i].geometry.coordinates[1], fs[i].geometry.coordinates[0]], name: name, sub: where.join(', ') });
+        }
+        if (!out.length) return fail('not found');
+        ok(out);
       }, fail);
     };
     if (!key) return photon();
-    get(T + '/search/2/search/' + encodeURIComponent(query) + '.json?key=' + key + '&limit=1&countrySet=TH&language=th-TH&lat=' + here[0] + '&lon=' + here[1], function (j) {
-      var r = (j.results || [])[0];
-      if (!r) return photon();
-      ok({ at: [r.position.lat, r.position.lon], name: (r.poi && r.poi.name) || (r.address && r.address.freeformAddress) || query });
+    get(T + '/search/2/search/' + encodeURIComponent(query) + '.json?key=' + key + '&limit=' + most + '&countrySet=TH&language=th-TH&lat=' + near[0] + '&lon=' + near[1], function (j) {
+      var out = [], rs = j.results || [];
+      for (var i = 0; i < rs.length; i++) {
+        var r = rs[i], address = (r.address && r.address.freeformAddress) || '';
+        out.push({ at: [r.position.lat, r.position.lon], name: (r.poi && r.poi.name) || address || query, sub: r.poi ? address : '' });
+      }
+      if (!out.length) return photon();
+      ok(out);
     }, photon);
   }
+  function find(query, ok, fail) { places(query, 1, function (list) { ok(list[0]); }, fail); }
 
   var TURN = { left: 'เลี้ยวซ้าย', right: 'เลี้ยวขวา', 'slight left': 'เบี่ยงซ้าย', 'slight right': 'เบี่ยงขวา',
     'sharp left': 'เลี้ยวซ้ายหักศอก', 'sharp right': 'เลี้ยวขวาหักศอก', straight: 'ตรงไป', uturn: 'กลับรถ' };
@@ -351,6 +374,42 @@
   $('out').onclick = function () { autoZoom = false; map.setZoom(Math.max(4, map.getZoom() - 1)); };
   $('centre').onclick = refollow;
   $('stop').onclick = function () { clear(false); };
+  // the search box: type a place, pick one of the results, and the way there is drawn
+  var typing = null, asked = 0;
+  function closeFind() { $('find').style.display = 'none'; $('q').blur(); $('q').value = ''; $('hits').innerHTML = ''; }
+  function row(text, sub, tap) {
+    var d = document.createElement('div');
+    d.appendChild(document.createTextNode(text));
+    if (sub) { var sm = document.createElement('small'); sm.appendChild(document.createTextNode(sub)); d.appendChild(sm); }
+    if (tap) d.onclick = tap;
+    $('hits').appendChild(d);
+  }
+  function look() {
+    var q = $('q').value.replace(/^\s+|\s+$/g, ''), mine = ++asked;
+    if (q.length < 2) { $('hits').innerHTML = ''; return; }
+    places(q, 5, function (list) {
+      if (mine !== asked) return;                      // newer typing has replaced this search
+      $('hits').innerHTML = '';
+      for (var i = 0; i < list.length; i++) (function (p) {
+        row(p.name, (here ? far(metres(here, p.at)) + (p.sub ? ' · ' : '') : '') + p.sub, function () {
+          closeFind();
+          if (!here) return say('ยังไม่มีสัญญาณ GPS จึงหาเส้นทางไม่ได้', 8);
+          say('กำลังหาเส้นทาง…', 0);
+          ways(here, p.at, function (r) { start(r, p.name, p.at); refollow(); host.save('route', p.name); },
+            function () { say('หาเส้นทางไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 8); });
+        });
+      })(list[i]);
+    }, function (why) {
+      if (mine !== asked) return;
+      $('hits').innerHTML = '';
+      row(why === 'not found' ? 'ไม่พบสถานที่ ลองพิมพ์ชื่ออื่นหรือเพิ่มชื่อจังหวัด' : 'ค้นหาไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', '', null);
+    });
+  }
+  $('look').onclick = function () { $('find').style.display = 'block'; $('q').focus(); };
+  $('qx').onclick = closeFind;
+  $('q').addEventListener('input', function () { clearTimeout(typing); typing = setTimeout(look, 600); });
+  $('q').addEventListener('keydown', function (e) { if (e.keyCode === 13) { clearTimeout(typing); $('q').blur(); look(); } });
+
   $('mode').onclick = function () {
     headingUp = !headingUp;
     host.save('headingUp', headingUp ? '1' : '0');
