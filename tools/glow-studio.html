@@ -1,0 +1,1084 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0f13">
+<title>Glow Studio</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+html{-webkit-text-size-adjust:100%}
+img{max-width:100%}
+[hidden]{display:none!important}
+/* Layout: one-screen mobile editor — top bar, photo stage, tool panel, bottom tab bar. Committed dark studio look. */
+:root{
+  --bg:#0e0f13; --surface:#161922; --surface2:#1e222d; --line:#2a2f3c;
+  --fg:#f2f4f8; --muted:#9aa3b2; --accent:#ff5c8a; --accent2:#7c6cff; --good:#38d39f;
+  --r:14px; --tab-h:64px;
+  color-scheme:dark;
+  --fontUI:'Inter',system-ui,-apple-system,'Noto Sans Thai',sans-serif;
+  --fontBrand:'Space Grotesk',var(--fontUI);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hidden;-webkit-tap-highlight-color:transparent}
+#app{display:flex;flex-direction:column;height:100%;max-width:640px;margin:0 auto;background:var(--bg)}
+
+/* top bar */
+#topbar{display:flex;align-items:center;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px)) 10px max(12px,env(safe-area-inset-right,0px));
+  padding-top:calc(10px + env(safe-area-inset-top,0px));background:var(--surface);border-bottom:1px solid var(--line);flex:0 0 auto}
+.brand{font-family:var(--fontBrand);font-weight:700;font-size:1.02rem;letter-spacing:.2px;margin:0 auto 0 4px;white-space:nowrap}
+@media (max-width:430px){.brand{font-size:.9rem}}
+.brand span{color:var(--accent)}
+#topbar button{font-family:var(--fontUI)}
+.iconbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-size:1.1rem;cursor:pointer;display:grid;place-items:center}
+.iconbtn:disabled{opacity:.35;cursor:default}
+.tbtn{height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-weight:600;font-size:.85rem;cursor:pointer;white-space:nowrap}
+.tbtn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
+
+/* stage */
+#stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;background:
+  radial-gradient(120% 90% at 50% 0%,#1a1d27 0%,var(--bg) 70%)}
+#canvasWrap{position:relative;max-width:100%;max-height:100%;line-height:0;box-shadow:0 18px 50px rgba(0,0,0,.5);background:#000;transition:padding .15s,background .15s,border-radius .15s}
+#base,#doodle{display:block;max-width:100%;max-height:100%;touch-action:none;border-radius:inherit}
+#doodle{position:absolute;inset:0;width:100%;height:100%}
+#overlay{position:absolute;inset:0}
+.ov{position:absolute;left:0;top:0;transform-origin:center center;cursor:grab;user-select:none;white-space:nowrap;will-change:transform;line-height:1}
+.ov.sel{outline:1.5px dashed var(--accent);outline-offset:4px}
+.ov .handle{position:absolute;width:26px;height:26px;border-radius:50%;background:var(--accent);right:-13px;bottom:-13px;display:none;place-items:center;color:#fff;font-size:13px;cursor:nwse-resize;border:2px solid #fff;touch-action:none}
+.ov .del{position:absolute;width:26px;height:26px;border-radius:50%;background:#e23;left:-13px;top:-13px;display:none;place-items:center;color:#fff;font-size:14px;cursor:pointer;border:2px solid #fff}
+.ov.sel .handle,.ov.sel .del{display:grid}
+#emptyHint{position:absolute;inset:auto 0 12px 0;text-align:center;color:var(--muted);font-size:.78rem;pointer-events:none}
+#btnFull{position:absolute;top:10px;right:10px;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(22,25,34,.72);color:var(--fg);font-size:1.05rem;cursor:pointer;z-index:6;display:grid;place-items:center;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+
+/* crop box */
+#cropBox{position:absolute;border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 4000px rgba(0,0,0,.45);touch-action:none;cursor:move}
+#cropBox .ch{position:absolute;width:24px;height:24px;touch-action:none}
+#cropBox .ch::before{content:"";position:absolute;width:16px;height:16px;border:2px solid #fff}
+#cropBox .nw{left:-2px;top:-2px;cursor:nwse-resize}.nw::before{border-right:none;border-bottom:none;left:0;top:0}
+#cropBox .ne{right:-2px;top:-2px;cursor:nesw-resize}.ne::before{border-left:none;border-bottom:none;right:0;top:0}
+#cropBox .sw{left:-2px;bottom:-2px;cursor:nesw-resize}.sw::before{border-right:none;border-top:none;left:0;bottom:0}
+#cropBox .se{right:-2px;bottom:-2px;cursor:nwse-resize}.se::before{border-left:none;border-top:none;right:0;bottom:0}
+.crop-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.25) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.25) 1px,transparent 1px);background-size:33.33% 33.33%}
+
+/* panel */
+#panel{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);max-height:46vh;overflow-y:auto;
+  padding:12px max(12px,env(safe-area-inset-left,0px)) 12px max(12px,env(safe-area-inset-right,0px))}
+#panel:empty{display:none}
+.panelHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.panelHead h2{font-size:.9rem;margin:0;font-weight:700}
+.linkbtn{background:none;border:none;color:var(--accent);font-weight:600;font-size:.82rem;cursor:pointer}
+/* sliders */
+.row{display:flex;align-items:center;gap:10px;margin:10px 0}
+.row label{flex:0 0 96px;font-size:.8rem;color:var(--muted)}
+.row output{flex:0 0 40px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums;color:var(--fg)}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:4px;background:var(--surface2);outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--accent);border:3px solid #fff2;cursor:pointer}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--accent);border:3px solid #fff2;cursor:pointer}
+/* filter strip */
+.strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+.thumb{flex:0 0 auto;width:66px;text-align:center;cursor:pointer}
+.thumb canvas{width:64px;height:64px;border-radius:12px;border:2px solid transparent;object-fit:cover;background:#000}
+.thumb.active canvas{border-color:var(--accent)}
+.thumb span{display:block;font-size:.68rem;color:var(--muted);margin-top:4px}
+.thumb.active span{color:var(--fg)}
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-size:.8rem;cursor:pointer}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.grid-emoji{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}
+.grid-emoji button{font-size:1.5rem;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:6px 0;cursor:pointer;line-height:1}
+.ta{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:10px;color:var(--fg);padding:10px;font-size:.95rem;font-family:var(--fontUI);resize:none}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.sw{width:28px;height:28px;border-radius:50%;border:2px solid #fff3;cursor:pointer}
+.sw.active{outline:2px solid var(--accent);outline-offset:2px}
+.fontpick{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.note{font-size:.72rem;color:var(--muted);margin:6px 0 0}
+
+/* tab bar */
+#tabbar{flex:0 0 auto;display:flex;gap:2px;background:var(--surface);border-top:1px solid var(--line);
+  padding:8px max(6px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-right,0px));
+  overflow-x:auto;height:calc(var(--tab-h) + env(safe-area-inset-bottom,0px));flex:0 0 auto}
+.tab{flex:1 0 auto;min-width:58px;background:none;border:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 6px;border-radius:10px;cursor:pointer;font-size:.66rem;font-family:var(--fontUI)}
+.tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8}
+.tab.active{color:var(--accent)}
+
+/* ai busy + toast */
+#aiBusy{position:fixed;inset:0;background:rgba(0,0,0,.62);display:grid;place-items:center;z-index:60;color:#fff;text-align:center}
+#aiBusy .sp{width:46px;height:46px;border:4px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#aiToast{position:fixed;left:50%;bottom:calc(var(--tab-h) + env(safe-area-inset-bottom,0px) + 16px);transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line);color:var(--fg);padding:10px 16px;border-radius:999px;z-index:70;font-size:.82rem;max-width:88%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.aiInput{flex:1;background:var(--surface2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:9px;font-size:.82rem;font-family:var(--fontUI);min-width:0}
+/* save modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;z-index:50;padding:16px}
+.modal .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;max-width:420px;width:100%;max-height:88vh;overflow:auto}
+.modal h3{margin:0 0 4px;font-size:1rem}
+.modal .saveimg{width:100%;border-radius:12px;margin:10px 0;display:block;background:#000}
+.modal .note{margin-bottom:10px}
+.modal .actions{display:flex;gap:8px;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:6px}
+.seg button{background:var(--surface2);border:none;color:var(--muted);padding:7px 14px;font-size:.8rem;cursor:pointer;font-family:var(--fontUI)}
+.seg button.active{background:var(--accent);color:#fff}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=Noto+Sans+Thai:wght@400;600&family=Pacifico&family=Prompt:wght@600&display=swap">
+</head>
+<body>
+
+<div id="app">
+  <header id="topbar">
+    <button class="iconbtn" id="btnUndo" title="ย้อนกลับ" disabled>&#8630;</button>
+    <button class="iconbtn" id="btnRedo" title="ทำซ้ำ" disabled>&#8631;</button>
+    <div class="brand">Glow <span>Studio</span></div>
+    <button class="iconbtn" id="btnAuto" title="ปรับออโต้ (Auto)">✨</button>
+    <button class="tbtn" id="btnImport">รูป</button>
+    <button class="tbtn primary" id="btnSave">บันทึก</button>
+  </header>
+
+  <main id="stage">
+    <div id="canvasWrap">
+      <canvas id="base"></canvas>
+      <canvas id="doodle"></canvas>
+      <div id="overlay"></div>
+      <div id="cropBox" hidden>
+        <div class="crop-grid"></div>
+        <div class="ch nw" data-c="nw"></div><div class="ch ne" data-c="ne"></div>
+        <div class="ch sw" data-c="sw"></div><div class="ch se" data-c="se"></div>
+      </div>
+    </div>
+    <div id="emptyHint">แตะ “รูป” เพื่อเลือกภาพของคุณ · ตอนนี้เป็นภาพตัวอย่าง</div>
+    <button id="btnFull" title="เต็มจอ">⤢</button>
+  </main>
+
+  <section id="panel"></section>
+
+  <nav id="tabbar"></nav>
+</div>
+
+<input id="file" type="file" accept="image/*" hidden>
+<div id="saveModal" class="modal" hidden></div>
+<div id="aiBusy" hidden><div><div class="sp"></div><span id="aiBusyMsg">กำลังประมวลผล…</span></div></div>
+
+<script>
+"use strict";
+/* ---------- state ---------- */
+const S = {
+  adjust:{brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1},
+  beauty:{smooth:0,whiten:0,rosy:0},
+  filter:"org",
+  frame:"none",
+  overlays:[],         // {id,type,content,font,color,size,x,y,scale,rot,el}
+  baseSrc:null,        // data URL of current (baked) base image
+  natW:0,natH:0,       // natural dims of base image
+  tab:"filter",
+  doodle:{color:"#ff5c8a",size:8,erase:false}
+};
+const PRESETS = {
+  org:{n:"ต้นฉบับ",f:""},
+  fresh:{n:"ใส",f:"brightness(1.06) saturate(1.12)",ov:{c:"#9fd8ff",a:.08,m:"soft-light"}},
+  warm:{n:"วอร์ม",f:"saturate(1.12) sepia(.12)",ov:{c:"#ff9b4d",a:.16,m:"soft-light"}},
+  sweet:{n:"หวาน",f:"brightness(1.05) saturate(1.1)",ov:{c:"#ff6fae",a:.14,m:"soft-light"}},
+  film:{n:"ฟิล์ม",f:"contrast(1.08) saturate(.9) sepia(.22)",vig:.18},
+  vivid:{n:"สด",f:"saturate(1.45) contrast(1.12)"},
+  cool:{n:"คูล",f:"saturate(1.05) hue-rotate(-8deg)",ov:{c:"#4d7bff",a:.14,m:"soft-light"}},
+  vintage:{n:"วินเทจ",f:"sepia(.4) contrast(.95) brightness(1.05) saturate(.95)",vig:.12},
+  fade:{n:"ฟุ้ง",f:"contrast(.9) brightness(1.08) saturate(.82)",fade:.25},
+  mono:{n:"ขาวดำ",f:"grayscale(1) contrast(1.06)"},
+  noir:{n:"นัวร์",f:"grayscale(1) contrast(1.35) brightness(.95)",vig:.25},
+  sunset:{n:"พระอาทิตย์",f:"saturate(1.2) contrast(1.05)",ov:{c:"#ff7a3d",a:.22,m:"soft-light"}}
+};
+const EMOJIS = ["😍","😘","🥰","😎","🤩","😂","🥹","😇","🔥","✨","💫","⭐","💖","💕","💘","❤️","🌸","🌷","🌺","🌈","☀️","🌙","⚡","💎","👑","🎀","🎉","🎈","🦋","🐱","🐶","🌟","💐","🍓","🍑","🍰","☕","📷","💄","👛"];
+const SWATCHES = ["#ffffff","#111111","#ff5c8a","#7c6cff","#38d39f","#ffd23f","#ff7a3d","#4d7bff","#ff3b6b","#00d2d2"];
+const FONTS = [["Prompt","Prompt"],["Noto Sans Thai","Noto Sans Thai"],["Pacifico","Pacifico"],["Space Grotesk","Space Grotesk"],["Inter","Inter"]];
+
+/* ---------- refs ---------- */
+const $ = s=>document.querySelector(s);
+const base=$("#base"), bctx=base.getContext("2d");
+const dood=$("#doodle"), dctx=dood.getContext("2d");
+const wrap=$("#canvasWrap"), overlay=$("#overlay"), stage=$("#stage");
+const panel=$("#panel"), tabbar=$("#tabbar"), emptyHint=$("#emptyHint");
+const img = new Image();
+
+/* ---------- history ---------- */
+let hist=[], hpos=-1;
+function snapshot(){
+  const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,frame:S.frame,
+    baseSrc:S.baseSrc,natW:S.natW,natH:S.natH,
+    overlays:S.overlays.map(o=>({type:o.type,content:o.content,font:o.font,color:o.color,size:o.size,x:o.x,y:o.y,scale:o.scale,rot:o.rot,opacity:o.opacity})),
+    doodle:dood.width?dood.toDataURL():null};
+  hist=hist.slice(0,hpos+1); hist.push(st); if(hist.length>24){hist.shift();} hpos=hist.length-1;
+  updHist();
+}
+function updHist(){ $("#btnUndo").disabled=hpos<=0; $("#btnRedo").disabled=hpos>=hist.length-1; }
+async function restore(st){
+  Object.assign(S.adjust,st.adjust); Object.assign(S.beauty,st.beauty);
+  S.filter=st.filter; S.frame=st.frame; S.natW=st.natW; S.natH=st.natH;
+  // overlays
+  overlay.innerHTML=""; S.overlays=[];
+  st.overlays.forEach(o=>addOverlay(o,false));
+  // base image
+  if(st.baseSrc && st.baseSrc!==S.baseSrc){ S.baseSrc=st.baseSrc; await loadImg(st.baseSrc); }
+  // doodle
+  sizeDoodle();
+  dctx.clearRect(0,0,dood.width,dood.height);
+  if(st.doodle){ await new Promise(r=>{const di=new Image();di.onload=()=>{dctx.drawImage(di,0,0,dood.width,dood.height);r();};di.onerror=r;di.src=st.doodle;}); }
+  applyFrameCSS(); render(); refreshPanel();
+}
+$("#btnUndo").onclick=()=>{ if(hpos>0){hpos--;restore(hist[hpos]);updHist();} };
+$("#btnRedo").onclick=()=>{ if(hpos<hist.length-1){hpos++;restore(hist[hpos]);updHist();} };
+
+/* ---------- image loading ---------- */
+function loadImg(src){ return new Promise((res,rej)=>{ img.onload=()=>{S.natW=img.naturalWidth;S.natH=img.naturalHeight;res();}; img.onerror=rej; img.src=src; }); }
+
+/* fit canvas to stage, keep aspect */
+const DPR=Math.min(window.devicePixelRatio||1,3);
+function fitStage(){
+  const maxW=stage.clientWidth-28, maxH=stage.clientHeight-28;
+  const ar=S.natW/S.natH; let w=maxW,h=w/ar;
+  if(h>maxH){h=maxH;w=h*ar;}
+  // backing store at device resolution for a crisp preview; CSS size stays in layout px
+  base.width=Math.round(w*DPR); base.height=Math.round(h*DPR);
+  base.style.width=w+"px"; base.style.height=h+"px";
+  sizeDoodle();
+}
+function sizeDoodle(){
+  if(dood.width!==S.natW||dood.height!==S.natH){
+    // preserve existing drawing by re-sizing from data
+    const prev = dood.width? dood.toDataURL():null;
+    dood.width=S.natW; dood.height=S.natH;
+    if(prev){const di=new Image();di.onload=()=>dctx.drawImage(di,0,0,dood.width,dood.height);di.src=prev;}
+  }
+  dood.style.width=base.style.width; dood.style.height=base.style.height;
+}
+
+/* ---------- core render ---------- */
+function buildFilter(){
+  const a=S.adjust, p=PRESETS[S.filter];
+  const bright=a.brightness*a.exposure;
+  const con=a.contrast*(1+a.clarity*0.35)*(1-a.fade*0.25);
+  const sat=a.saturation*(1-a.fade*0.15);
+  let f=`brightness(${bright.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)})`;
+  if(p.f) f+=" "+p.f;
+  return f;
+}
+function overlayFill(ctx,W,H,color,alpha,mode){
+  ctx.save();ctx.globalCompositeOperation=mode||"soft-light";ctx.globalAlpha=alpha;ctx.fillStyle=color;ctx.fillRect(0,0,W,H);ctx.restore();
+}
+function paint(ctx,W,H,blurScale){
+  const a=S.adjust,b=S.beauty,p=PRESETS[S.filter];
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.filter=buildFilter(); ctx.drawImage(img,0,0,W,H); ctx.restore();
+  // beauty: smooth skin (soft blurred overlay)
+  if(b.smooth>0){ ctx.save(); ctx.globalAlpha=b.smooth*0.85; ctx.filter=`blur(${(b.smooth*blurScale).toFixed(2)}px) ${buildFilter()}`; ctx.drawImage(img,0,0,W,H); ctx.restore(); }
+  if(b.whiten>0){ overlayFill(ctx,W,H,"#ffffff",b.whiten*0.35,"soft-light"); overlayFill(ctx,W,H,"#fff4ec",b.whiten*0.12,"lighten"); }
+  if(b.rosy>0){ overlayFill(ctx,W,H,"#ff6f91",b.rosy*0.45,"soft-light"); }
+  // preset overlay
+  if(p.ov){ overlayFill(ctx,W,H,p.ov.c,p.ov.a,p.ov.m); }
+  // temperature
+  if(a.temp>0){ overlayFill(ctx,W,H,"#ff8a2b",Math.abs(a.temp)*0.3,"soft-light"); }
+  else if(a.temp<0){ overlayFill(ctx,W,H,"#2b7bff",Math.abs(a.temp)*0.3,"soft-light"); }
+  // fade (preset + adjust)
+  const fade=Math.max(a.fade,p.fade||0);
+  if(fade>0){ ctx.save();ctx.globalCompositeOperation="lighten";ctx.globalAlpha=fade*0.55;ctx.fillStyle="#2a2d38";ctx.fillRect(0,0,W,H);ctx.restore(); }
+  // vignette
+  const vig=Math.max(a.vignette,p.vig||0);
+  if(vig>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);
+    g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${vig})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+}
+function render(){ if(!S.baseSrc)return;
+  if(retouchMode){ bctx.setTransform(1,0,0,1,0,0); bctx.clearRect(0,0,base.width,base.height); bctx.drawImage(rwork,0,0,base.width,base.height); return; }
+  paint(bctx,base.width,base.height, base.width/S.natW*4); }
+
+/* ---------- frame ---------- */
+const FRAMES={none:{},white:{p:.04,bg:"#fff"},black:{p:.04,bg:"#111"},round:{radius:.06},
+  polaroid:{p:.05,pb:.22,bg:"#fff",shadow:1},film:{p:.055,bg:"#141414",sprocket:1}};
+function applyFrameCSS(){
+  const f=FRAMES[S.frame]||{}; const base2=Math.min(base.width,base.height)||300;
+  wrap.style.padding = f.p? `${f.p*base2}px` : "0";
+  if(f.pb) wrap.style.paddingBottom=`${f.pb*base2}px`;
+  wrap.style.background=f.bg||"#000";
+  wrap.style.borderRadius=f.radius?`${f.radius*base2}px`:"0";
+}
+
+/* ---------- overlays (stickers + text) ---------- */
+let uid=1, selEl=null;
+function addOverlay(o,push=true){
+  const el=document.createElement("div"); el.className="ov";
+  const id=o.id||uid++;
+  const data={id,type:o.type,content:o.content,font:o.font||"Prompt",color:o.color||"#fff",
+    size:o.size|| (o.type==="text"?42:72), x:o.x??0.5,y:o.y??0.5,scale:o.scale||1,rot:o.rot||0,opacity:o.opacity==null?1:o.opacity,el};
+  if(o.type==="image"){ const im=document.createElement("img");im.src=o.content;im.draggable=false;im.style.width=data.size+"px";im.style.height="auto";im.style.display="block";el.appendChild(im);data.imgEl=im; }
+  else if(o.type==="text"){ el.textContent=o.content; el.style.color=data.color; el.style.fontFamily=`'${data.font}',sans-serif`;
+    el.style.fontSize=data.size+"px"; el.style.fontWeight="600"; el.style.textShadow="0 2px 10px rgba(0,0,0,.35)"; }
+  else { el.textContent=o.content; el.style.fontSize=data.size+"px"; }
+  el.style.opacity=data.opacity;
+  const h=document.createElement("div");h.className="handle";h.textContent="⤡";
+  const d=document.createElement("div");d.className="del";d.textContent="×";
+  el.append(h,d); overlay.appendChild(el);
+  S.overlays.push(data); positionOv(data);
+  el.addEventListener("pointerdown",e=>{ if(e.target===h||e.target===d)return; selectOv(data); dragOv(e,data); });
+  d.addEventListener("pointerdown",e=>{e.stopPropagation();});
+  d.addEventListener("click",e=>{e.stopPropagation(); el.remove(); S.overlays=S.overlays.filter(x=>x!==data); selEl=null; snapshot();});
+  h.addEventListener("pointerdown",e=>{e.stopPropagation(); scaleOv(e,data);});
+  if(push){selectOv(data); snapshot();}
+  return data;
+}
+function positionOv(o){
+  const bw=base.clientWidth,bh=base.clientHeight;
+  o.el.style.transform=`translate(${o.x*bw}px,${o.y*bh}px) translate(-50%,-50%) rotate(${o.rot}deg) scale(${o.scale})`;
+}
+function repositionAll(){ S.overlays.forEach(positionOv); }
+function selectOv(o){ if(selEl)selEl.classList.remove("sel"); selEl=o.el; o.el.classList.add("sel"); }
+function clearSel(){ if(selEl){selEl.classList.remove("sel");selEl=null;} }
+function dragOv(e,o){
+  o.el.setPointerCapture(e.pointerId); const bw=base.clientWidth,bh=base.clientHeight;
+  const sx=e.clientX,sy=e.clientY,ox=o.x,oy=o.y;
+  const mv=ev=>{ o.x=Math.min(1,Math.max(0,ox+(ev.clientX-sx)/bw)); o.y=Math.min(1,Math.max(0,oy+(ev.clientY-sy)/bh)); positionOv(o); };
+  const up=()=>{o.el.removeEventListener("pointermove",mv);o.el.removeEventListener("pointerup",up);snapshot();};
+  o.el.addEventListener("pointermove",mv); o.el.addEventListener("pointerup",up);
+}
+function scaleOv(e,o){
+  const h=o.el.querySelector(".handle"); h.setPointerCapture(e.pointerId);
+  const r=o.el.getBoundingClientRect(); const cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const d0=Math.hypot(e.clientX-cx,e.clientY-cy)||1, s0=o.scale, a0=Math.atan2(e.clientY-cy,e.clientX-cx), r0=o.rot;
+  const mv=ev=>{ const d=Math.hypot(ev.clientX-cx,ev.clientY-cy); o.scale=Math.min(6,Math.max(.2,s0*d/d0));
+    const a=Math.atan2(ev.clientY-cy,ev.clientX-cx); o.rot=r0+(a-a0)*180/Math.PI; positionOv(o); };
+  const up=()=>{h.removeEventListener("pointermove",mv);h.removeEventListener("pointerup",up);snapshot();};
+  h.addEventListener("pointermove",mv); h.addEventListener("pointerup",up);
+}
+overlay.addEventListener("pointerdown",e=>{ if(e.target===overlay) clearSel(); });
+
+/* ---------- doodle ---------- */
+let drawing=false,last=null;
+function doodleXY(e){ const r=dood.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*dood.width,y:(e.clientY-r.top)/r.height*dood.height}; }
+function dStart(e){ if(S.tab==="retouch"){retouchDown(e);return;} if(S.tab!=="doodle")return; drawing=true; dood.setPointerCapture(e.pointerId); last=doodleXY(e); dDraw(e); }
+function dDraw(e){ if(S.tab==="retouch"){retouchMove(e);return;} if(!drawing)return; const p=doodleXY(e);
+  dctx.save(); dctx.lineCap="round";dctx.lineJoin="round";
+  dctx.globalCompositeOperation=S.doodle.erase?"destination-out":"source-over";
+  dctx.strokeStyle=S.doodle.color; dctx.lineWidth=S.doodle.size*(dood.width/base.clientWidth);
+  dctx.beginPath();dctx.moveTo(last.x,last.y);dctx.lineTo(p.x,p.y);dctx.stroke();dctx.restore();
+  last=p;
+}
+function dEnd(){ if(S.tab==="retouch"){retouchUp();return;} if(drawing){drawing=false;snapshot();} }
+dood.addEventListener("pointerdown",dStart);
+dood.addEventListener("pointermove",dDraw);
+dood.addEventListener("pointerup",dEnd);
+dood.addEventListener("pointercancel",dEnd);
+function setDoodleActive(on){ dood.style.pointerEvents=on?"auto":"none"; overlay.style.pointerEvents=on?"none":"auto"; }
+
+/* ---------- tabs ---------- */
+const TABS=[
+  ["filter","ฟิลเตอร์",'<path d="M3 5h18M6 12h12M10 19h4"/>'],
+  ["adjust","ปรับแต่ง",'<circle cx="8" cy="7" r="2"/><path d="M8 9v9M8 3v2"/><circle cx="16" cy="15" r="2"/><path d="M16 3v10M16 17v4"/>'],
+  ["beauty","บิวตี้",'<path d="M12 21s-7-4.5-7-10a4 4 0 017-2.5A4 4 0 0119 11c0 5.5-7 10-7 10z"/>'],
+  ["retouch","รีทัช",'<path d="M4 20l9-9M13 5l2 2M18 10l2 2M14 4l2 2-9 9-2-2z"/>'],
+  ["crop","ครอป",'<path d="M6 2v16h16M2 6h16v16"/>'],
+  ["sticker","สติกเกอร์",'<circle cx="12" cy="12" r="9"/><path d="M8 10h.01M15 10h.01M8.5 15a4 4 0 007 0"/>'],
+  ["text","ข้อความ",'<path d="M4 6V4h16v2M12 4v16M8 20h8"/>'],
+  ["frame","กรอบ",'<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/>'],
+  ["doodle","วาด",'<path d="M3 21l3-1 11-11-2-2L4 18l-1 3zM14 5l3 3"/>'],
+  ["watermark","ลายน้ำ",'<path d="M12 3c3 4 5 6.5 5 9a5 5 0 01-10 0c0-2.5 2-5 5-9z"/>'],
+  ["ai","AI",'<path d="M12 3l1.7 4L18 8.7l-4.3 1.6L12 15l-1.7-4.7L6 8.7 10.3 7z"/><circle cx="5.5" cy="17.5" r="1.3"/><circle cx="18.5" cy="17.5" r="1.3"/>'],
+  ["collage","คอลลาจ",'<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/>']
+];
+function buildTabs(){
+  tabbar.innerHTML="";
+  TABS.forEach(([k,label,svg])=>{ const b=document.createElement("button"); b.className="tab"+(S.tab===k?" active":"");
+    b.innerHTML=`<svg viewBox="0 0 24 24">${svg}</svg><span>${label}</span>`;
+    b.onclick=()=>selectTab(k); tabbar.appendChild(b); });
+}
+function selectTab(k){
+  if(retouchMode && k!=="retouch") exitRetouch();
+  if(k==="collage"){ openCollage(); return; }
+  S.tab=k; cancelCrop(); setDoodleActive(k==="doodle"||k==="retouch"); if(k!=="sticker"&&k!=="text")clearSel();
+  if(k==="retouch") enterRetouch();
+  buildTabs(); refreshPanel(); onResize(); }
+
+/* ---------- panels ---------- */
+function slider(label,key,obj,min,max,step,fmt){
+  const v=obj[key];
+  const row=document.createElement("div");row.className="row";
+  row.innerHTML=`<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${v}"><output></output>`;
+  const inp=row.querySelector("input"),out=row.querySelector("output");
+  const show=val=>out.textContent=fmt?fmt(val):val;
+  show(v);
+  inp.addEventListener("input",()=>{ obj[key]=parseFloat(inp.value); show(obj[key]); render(); });
+  inp.addEventListener("change",snapshot);
+  return row;
+}
+function refreshPanel(){
+  panel.innerHTML="";
+  const k=S.tab;
+  if(k==="filter")panelFilter();
+  else if(k==="adjust")panelAdjust();
+  else if(k==="beauty")panelBeauty();
+  else if(k==="crop")panelCrop();
+  else if(k==="sticker")panelSticker();
+  else if(k==="text")panelText();
+  else if(k==="frame")panelFrame();
+  else if(k==="doodle")panelDoodle();
+  else if(k==="retouch")panelRetouch();
+  else if(k==="watermark")panelWatermark();
+  else if(k==="ai")panelAI();
+}
+function head(title,resetFn){
+  const h=document.createElement("div");h.className="panelHead";
+  h.innerHTML=`<h2>${title}</h2>`;
+  if(resetFn){const b=document.createElement("button");b.className="linkbtn";b.textContent="รีเซ็ต";b.onclick=resetFn;h.appendChild(b);}
+  panel.appendChild(h); return h;
+}
+/* filters */
+let thumbSrc=null;
+function makeThumbSrc(){
+  const c=document.createElement("canvas");const sz=120;const ar=S.natW/S.natH;
+  c.width=sz;c.height=Math.round(sz/ar); const cx=c.getContext("2d"); cx.drawImage(img,0,0,c.width,c.height);
+  thumbSrc=c;
+}
+function panelFilter(){
+  head("ฟิลเตอร์");
+  const strip=document.createElement("div");strip.className="strip";panel.appendChild(strip);
+  makeThumbSrc();
+  Object.keys(PRESETS).forEach(key=>{
+    const t=document.createElement("div");t.className="thumb"+(S.filter===key?" active":"");
+    const c=document.createElement("canvas");const ar=thumbSrc.width/thumbSrc.height;c.width=64;c.height=64;
+    const cx=c.getContext("2d");const p=PRESETS[key];
+    // render thumb with this preset
+    const sw=64,sh=64; const dw=ar>1?sw:sh*ar, dh=ar>1?sw/ar:sh; const ox=(sw-dw)/2,oy=(sh-dh)/2;
+    cx.save();cx.filter=(`brightness(1) contrast(1) saturate(1) `+(p.f||"")).trim();cx.drawImage(thumbSrc,ox,oy,dw,dh);cx.restore();
+    if(p.ov){cx.save();cx.globalCompositeOperation=p.ov.m||"soft-light";cx.globalAlpha=p.ov.a;cx.fillStyle=p.ov.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
+    t.appendChild(c);const s=document.createElement("span");s.textContent=p.n;t.appendChild(s);
+    t.onclick=()=>{S.filter=key;render();snapshot();[...strip.children].forEach(x=>x.classList.remove("active"));t.classList.add("active");};
+    strip.appendChild(t);
+  });
+}
+function panelAdjust(){
+  head("ปรับแสงสี",()=>{S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};render();snapshot();refreshPanel();});
+  panel.append(
+    slider("ความสว่าง","brightness",S.adjust,.3,1.8,.01,v=>Math.round((v-1)*100)),
+    slider("คอนทราสต์","contrast",S.adjust,.4,1.8,.01,v=>Math.round((v-1)*100)),
+    slider("ความอิ่มสี","saturation",S.adjust,0,2,.01,v=>Math.round((v-1)*100)),
+    slider("อุณหภูมิ","temp",S.adjust,-1,1,.01,v=>Math.round(v*100)),
+    slider("ความคม","clarity",S.adjust,0,1,.01,v=>Math.round(v*100)),
+    slider("ฟุ้ง","fade",S.adjust,0,1,.01,v=>Math.round(v*100)),
+    slider("ขอบมืด","vignette",S.adjust,0,.8,.01,v=>Math.round(v/.8*100))
+  );
+}
+function panelBeauty(){
+  head("บิวตี้ / รีทัช",()=>{S.beauty={smooth:0,whiten:0,rosy:0};render();snapshot();refreshPanel();});
+  panel.append(
+    slider("เนียนผิว","smooth",S.beauty,0,1,.01,v=>Math.round(v*100)),
+    slider("หน้าใส","whiten",S.beauty,0,1,.01,v=>Math.round(v*100)),
+    slider("แก้มชมพู","rosy",S.beauty,0,1,.01,v=>Math.round(v*100))
+  );
+  const n=document.createElement("p");n.className="note";n.textContent="เคล็ดลับ: อัปโหลดรูปคนเพื่อให้บิวตี้เห็นผลชัดที่สุด";panel.appendChild(n);
+}
+/* sticker */
+function panelSticker(){
+  head("สติกเกอร์");
+  const g=document.createElement("div");g.className="grid-emoji";
+  EMOJIS.forEach(e=>{const b=document.createElement("button");b.textContent=e;b.onclick=()=>addOverlay({type:"sticker",content:e});g.appendChild(b);});
+  panel.appendChild(g);
+  const n=document.createElement("p");n.className="note";n.textContent="แตะเพื่อเพิ่ม · ลากเพื่อย้าย · จับมุมชมพูเพื่อย่อ-ขยาย-หมุน · กากบาทแดงเพื่อลบ";panel.appendChild(n);
+}
+/* text */
+function panelText(){
+  head("ข้อความ");
+  let curColor="#ffffff", curFont="Prompt";
+  const ta=document.createElement("textarea");ta.className="ta";ta.rows=2;ta.placeholder="พิมพ์ข้อความ...";panel.appendChild(ta);
+  const fp=document.createElement("div");fp.className="fontpick";
+  FONTS.forEach(([lbl,fam])=>{const c=document.createElement("button");c.className="chip"+(fam===curFont?" active":"");c.textContent=lbl;c.style.fontFamily=`'${fam}',sans-serif`;
+    c.onclick=()=>{curFont=fam;[...fp.children].forEach(x=>x.classList.remove("active"));c.classList.add("active");};fp.appendChild(c);});
+  panel.appendChild(fp);
+  const sws=document.createElement("div");sws.className="swatches";
+  SWATCHES.forEach(col=>{const s=document.createElement("div");s.className="sw"+(col===curColor?" active":"");s.style.background=col;
+    s.onclick=()=>{curColor=col;[...sws.children].forEach(x=>x.classList.remove("active"));s.classList.add("active");};sws.appendChild(s);});
+  panel.appendChild(sws);
+  const add=document.createElement("button");add.className="tbtn primary";add.textContent="เพิ่มข้อความ";add.style.marginTop="12px";
+  add.onclick=()=>{const t=ta.value.trim();if(!t)return;addOverlay({type:"text",content:t,font:curFont,color:curColor});ta.value="";};
+  panel.appendChild(add);
+}
+/* frame */
+function panelFrame(){
+  head("กรอบรูป");
+  const chips=document.createElement("div");chips.className="chips";
+  [["none","ไม่มี"],["white","ขาว"],["black","ดำ"],["round","มุมมน"],["polaroid","โพลารอยด์"],["film","ฟิล์ม"]].forEach(([k,l])=>{
+    const c=document.createElement("button");c.className="chip"+(S.frame===k?" active":"");c.textContent=l;
+    c.onclick=()=>{S.frame=k;applyFrameCSS();[...chips.children].forEach(x=>x.classList.remove("active"));c.classList.add("active");snapshot();};
+    chips.appendChild(c);});
+  panel.appendChild(chips);
+}
+/* doodle */
+function panelDoodle(){
+  head("วาดเส้น",()=>{dctx.clearRect(0,0,dood.width,dood.height);snapshot();});
+  const sws=document.createElement("div");sws.className="swatches";
+  SWATCHES.filter(c=>c!=="#ffffff"||true).forEach(col=>{const s=document.createElement("div");s.className="sw"+(col===S.doodle.color&&!S.doodle.erase?" active":"");s.style.background=col;
+    s.onclick=()=>{S.doodle.color=col;S.doodle.erase=false;refreshPanel();};sws.appendChild(s);});
+  panel.appendChild(sws);
+  panel.append(slider("ขนาดหัวแปรง","size",S.doodle,2,40,1,v=>v));
+  const row=document.createElement("div");row.className="chips";row.style.marginTop="6px";
+  const er=document.createElement("button");er.className="chip"+(S.doodle.erase?" active":"");er.textContent="🧽 ยางลบ";
+  er.onclick=()=>{S.doodle.erase=!S.doodle.erase;refreshPanel();};row.appendChild(er);
+  const cl=document.createElement("button");cl.className="chip";cl.textContent="ล้างทั้งหมด";
+  cl.onclick=()=>{dctx.clearRect(0,0,dood.width,dood.height);snapshot();};row.appendChild(cl);
+  panel.appendChild(row);
+  const n=document.createElement("p");n.className="note";n.textContent="วาดลงบนรูปได้เลย";panel.appendChild(n);
+}
+
+/* ---------- crop ---------- */
+const cropBox=$("#cropBox");
+let cropState=null, cropRatio=0; // 0 = free
+function panelCrop(){
+  head("ครอป & หมุน");
+  const chips=document.createElement("div");chips.className="chips";
+  [["free","อิสระ",0],["1:1","1:1",1],["4:5","4:5",4/5],["3:4","3:4",3/4],["16:9","16:9",16/9],["9:16","9:16",9/16]].forEach(([k,l,r])=>{
+    const c=document.createElement("button");c.className="chip"+(cropRatio===r?" active":"");c.textContent=l;
+    c.onclick=()=>{cropRatio=r;[...chips.children].forEach(x=>x.classList.remove("active"));c.classList.add("active");startCrop();};chips.appendChild(c);});
+  panel.appendChild(chips);
+  const row=document.createElement("div");row.className="chips";row.style.marginTop="8px";
+  const mk=(lbl,fn)=>{const b=document.createElement("button");b.className="chip";b.textContent=lbl;b.onclick=fn;return b;};
+  row.append(
+    mk("↻ หมุน 90°",()=>bake("rot")),
+    mk("⇋ กลับซ้ายขวา",()=>bake("flipH")),
+    mk("⇅ กลับบนล่าง",()=>bake("flipV"))
+  );
+  panel.appendChild(row);
+  const act=document.createElement("div");act.className="chips";act.style.marginTop="8px";
+  const apply=document.createElement("button");apply.className="chip";apply.style.background="var(--good)";apply.style.borderColor="var(--good)";apply.style.color="#06281f";apply.textContent="✓ ใช้การครอป";
+  apply.onclick=applyCrop; act.appendChild(apply);
+  const cancel=document.createElement("button");cancel.className="chip";cancel.textContent="ยกเลิก";cancel.onclick=cancelCrop;act.appendChild(cancel);
+  panel.appendChild(act);
+  const n=document.createElement("p");n.className="note";n.textContent="เลือกสัดส่วนเพื่อเริ่มกรอบครอป แล้วลาก/ปรับมุม จากนั้นกด “ใช้การครอป”";panel.appendChild(n);
+  startCrop();
+}
+function startCrop(){
+  const bw=base.clientWidth,bh=base.clientHeight;
+  let w=bw*0.8,h=bh*0.8;
+  if(cropRatio){ if(w/h>cropRatio)w=h*cropRatio; else h=w/cropRatio; }
+  cropState={x:(bw-w)/2,y:(bh-h)/2,w,h};
+  cropBox.hidden=false; drawCrop();
+}
+function drawCrop(){
+  if(!cropState)return;
+  const r=base.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
+  const offx=r.left-wr.left, offy=r.top-wr.top;
+  cropBox.style.left=(offx+cropState.x)+"px"; cropBox.style.top=(offy+cropState.y)+"px";
+  cropBox.style.width=cropState.w+"px"; cropBox.style.height=cropState.h+"px";
+}
+cropBox.addEventListener("pointerdown",e=>{
+  if(e.target.classList.contains("ch"))return;
+  cropBox.setPointerCapture(e.pointerId);const sx=e.clientX,sy=e.clientY,ox=cropState.x,oy=cropState.y;const bw=base.clientWidth,bh=base.clientHeight;
+  const mv=ev=>{cropState.x=Math.min(bw-cropState.w,Math.max(0,ox+ev.clientX-sx));cropState.y=Math.min(bh-cropState.h,Math.max(0,oy+ev.clientY-sy));drawCrop();};
+  const up=()=>{cropBox.removeEventListener("pointermove",mv);cropBox.removeEventListener("pointerup",up);};
+  cropBox.addEventListener("pointermove",mv);cropBox.addEventListener("pointerup",up);
+});
+cropBox.querySelectorAll(".ch").forEach(h=>{
+  h.addEventListener("pointerdown",e=>{e.stopPropagation();h.setPointerCapture(e.pointerId);
+    const c=h.dataset.c,sx=e.clientX,sy=e.clientY,o={...cropState},bw=base.clientWidth,bh=base.clientHeight;
+    const mv=ev=>{let dx=ev.clientX-sx,dy=ev.clientY-sy;let x=o.x,y=o.y,w=o.w,hh=o.h;
+      if(c.includes("w")){x=o.x+dx;w=o.w-dx;} if(c.includes("e")){w=o.w+dx;}
+      if(c.includes("n")){y=o.y+dy;hh=o.h-dy;} if(c.includes("s")){hh=o.h+dy;}
+      if(cropRatio){ if(c==="se"||c==="nw"){hh=w/cropRatio;} else {hh=w/cropRatio;} if(c.includes("n"))y=o.y+o.h-hh; }
+      w=Math.max(40,w);hh=Math.max(40,hh);x=Math.max(0,Math.min(x,bw-w));y=Math.max(0,Math.min(y,bh-hh));
+      if(x+w>bw)w=bw-x; if(y+hh>bh)hh=bh-y;
+      cropState={x,y,w,h:hh};drawCrop();};
+    const up=()=>{h.removeEventListener("pointermove",mv);h.removeEventListener("pointerup",up);};
+    h.addEventListener("pointermove",mv);h.addEventListener("pointerup",up);});
+});
+function cancelCrop(){ cropBox.hidden=true; cropState=null; }
+async function applyCrop(){
+  if(!cropState)return;
+  const sc=S.natW/base.clientWidth;
+  const sx=cropState.x*sc, sy=cropState.y*sc, sw=cropState.w*sc, sh=cropState.h*sc;
+  const c=document.createElement("canvas");c.width=Math.round(sw);c.height=Math.round(sh);
+  c.getContext("2d").drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+  await rebake(c);
+  cancelCrop();
+}
+async function bake(kind){
+  const c=document.createElement("canvas");const cx=c.getContext("2d");
+  if(kind==="rot"){ c.width=S.natH;c.height=S.natW; cx.translate(c.width/2,c.height/2);cx.rotate(Math.PI/2);cx.drawImage(img,-S.natW/2,-S.natH/2);}
+  else { c.width=S.natW;c.height=S.natH; cx.translate(kind==="flipH"?c.width:0,kind==="flipV"?c.height:0);cx.scale(kind==="flipH"?-1:1,kind==="flipV"?-1:1);cx.drawImage(img,0,0);}
+  await rebake(c);
+  if(S.tab==="crop")startCrop();
+}
+async function rebake(canvas){
+  // bake current base image only (adjust/filter/beauty stay live on top); clear doodle to avoid misalignment on rotate/crop
+  const prevDood = dood.toDataURL();
+  S.baseSrc=canvas.toDataURL("image/png");
+  await loadImg(S.baseSrc);
+  fitStage();
+  dctx.clearRect(0,0,dood.width,dood.height); // reset doodle after geometry change
+  applyFrameCSS(); render(); repositionAll(); snapshot();
+}
+
+/* ---------- import ---------- */
+$("#btnImport").onclick=()=>$("#file").click();
+$("#file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
+  rd.onload=async()=>{ await setNewImage(rd.result,true); }; rd.readAsDataURL(f); e.target.value=""; };
+async function setNewImage(src,user){
+  S.baseSrc=src; await loadImg(src);
+  // reset everything for a fresh photo
+  S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};
+  S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.frame="none";
+  overlay.innerHTML="";S.overlays=[];selEl=null;
+  fitStage(); dctx.clearRect(0,0,dood.width,dood.height);
+  applyFrameCSS(); render();
+  emptyHint.style.display=user?"none":"block";
+  hist=[];hpos=-1;snapshot(); refreshPanel();
+}
+
+/* ---------- save / export ---------- */
+function exportCanvas(type,quality){
+  const fr=FRAMES[S.frame]||{}; const W=S.natW,H=S.natH; const b2=Math.min(W,H);
+  const pad=(fr.p||0)*b2, padB=(fr.pb? fr.pb*b2 : pad);
+  const cw=Math.round(W+pad*2), ch=Math.round(H+pad+padB);
+  const c=document.createElement("canvas");c.width=cw;c.height=ch;const cx=c.getContext("2d");
+  if(fr.bg){cx.fillStyle=fr.bg;cx.fillRect(0,0,cw,ch);}
+  const px=pad,py=pad;
+  cx.save(); cx.translate(px,py);
+  if(fr.radius){const rad=fr.radius*b2;roundRect(cx,0,0,W,H,rad);cx.clip();}
+  paintFull(cx,W,H);
+  // doodle
+  cx.drawImage(dood,0,0,W,H);
+  cx.restore();
+  // overlays
+  const sc=W/base.clientWidth;
+  S.overlays.forEach(o=>{
+    cx.save(); cx.translate(px+o.x*W, py+o.y*H); cx.rotate(o.rot*Math.PI/180); cx.scale(o.scale*sc,o.scale*sc);
+    cx.globalAlpha=o.opacity==null?1:o.opacity;
+    if(o.type==="image"&&o.imgEl){const iw=o.size,ih=o.size*(o.imgEl.naturalHeight/o.imgEl.naturalWidth||1);cx.drawImage(o.imgEl,-iw/2,-ih/2,iw,ih);}
+    else if(o.type==="text"){cx.fillStyle=o.color;cx.font=`600 ${o.size}px '${o.font}',sans-serif`;cx.textAlign="center";cx.textBaseline="middle";
+      cx.shadowColor="rgba(0,0,0,.35)";cx.shadowBlur=10;cx.shadowOffsetY=2;
+      o.content.split("\n").forEach((ln,i,arr)=>cx.fillText(ln,0,(i-(arr.length-1)/2)*o.size*1.15));}
+    else {cx.font=`${o.size}px sans-serif`;cx.textAlign="center";cx.textBaseline="middle";cx.fillText(o.content,0,0);}
+    cx.restore();
+  });
+  // film sprockets
+  if(fr.sprocket){cx.fillStyle="#000";const n=Math.floor(cw/ (b2*0.07)); const s=b2*0.035;
+    for(let i=0;i<n;i++){const x=i*(cw/n)+ (cw/n-s)/2; cx.fillStyle="rgba(255,255,255,.85)";cx.fillRect(x,pad*0.28,s,s*0.6);cx.fillRect(x,ch-pad*0.28-s*0.6,s,s*0.6);}}
+  return c.toDataURL(type,quality);
+}
+function paintFull(ctx,W,H){ // same as paint but blurScale tuned for full res
+  paint(ctx,W,H, Math.max(2,W/320*2)); }
+function roundRect(ctx,x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+$("#btnSave").onclick=()=>openSave();
+function openSave(){
+  clearSel(); cropBox.hidden=true;
+  let fmt="image/jpeg", ext="jpg";
+  const m=$("#saveModal");
+  m.innerHTML=`<div class="card">
+    <h3>บันทึกรูป</h3>
+    <div class="seg" id="fmtSeg"><button data-f="jpg" class="active">JPG</button><button data-f="png">PNG</button></div>
+    <img id="saveImg" class="saveimg" alt="ผลลัพธ์">
+    <p class="note" id="saveNote">📱 กดค้างที่รูป แล้วเลือก “บันทึกรูปภาพ” &nbsp;•&nbsp; 💻 คลิกขวา → Save image as…</p>
+    <div class="actions">
+      <button class="tbtn primary" id="dlBtn">ดาวน์โหลด</button>
+      <button class="tbtn" id="closeSave">ปิด</button>
+    </div></div>`;
+  m.hidden=false;
+  const render2=()=>{ const q=fmt==="image/jpeg"?0.92:undefined; $("#saveImg").src=exportCanvas(fmt,q); };
+  render2();
+  m.querySelector("#fmtSeg").onclick=e=>{const b=e.target.closest("button");if(!b)return;
+    [...e.currentTarget.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");
+    fmt=b.dataset.f==="png"?"image/png":"image/jpeg";ext=b.dataset.f;render2();};
+  $("#closeSave").onclick=()=>m.hidden=true;
+  m.onclick=e=>{if(e.target===m)m.hidden=true;};
+  $("#dlBtn").onclick=()=>{ try{const a=document.createElement("a");a.href=$("#saveImg").src;a.download="glow-studio."+ext;document.body.appendChild(a);a.click();a.remove();}catch(_){}
+    $("#saveNote").textContent="ถ้าปุ่มดาวน์โหลดไม่ทำงาน (เช่นในหน้าตัวอย่าง) ให้กดค้าง/คลิกขวาที่รูปด้านบนเพื่อบันทึกแทน"; };
+}
+
+/* ---------- sample image ---------- */
+function makeSample(){
+  const W=1080,H=1350,c=document.createElement("canvas");c.width=W;c.height=H;const x=c.getContext("2d");
+  const g=x.createLinearGradient(0,0,W,H);g.addColorStop(0,"#ff9a9e");g.addColorStop(.5,"#fad0c4");g.addColorStop(1,"#a18cd1");
+  x.fillStyle=g;x.fillRect(0,0,W,H);
+  // sun glow
+  const s=x.createRadialGradient(W*0.7,H*0.28,20,W*0.7,H*0.28,520);s.addColorStop(0,"rgba(255,245,200,.95)");s.addColorStop(1,"rgba(255,245,200,0)");x.fillStyle=s;x.fillRect(0,0,W,H);
+  // bokeh
+  for(let i=0;i<40;i++){x.globalAlpha=Math.random()*0.25+0.05;x.fillStyle=["#fff","#ffd1e8","#fff1b8"][i%3];const r=Math.random()*70+15;x.beginPath();x.arc(Math.random()*W,Math.random()*H,r,0,7);x.fill();}
+  x.globalAlpha=1;
+  // soft hills
+  x.fillStyle="rgba(120,90,160,.35)";x.beginPath();x.moveTo(0,H);x.lineTo(0,H*0.72);x.quadraticCurveTo(W*0.4,H*0.6,W,H*0.78);x.lineTo(W,H);x.fill();
+  x.fillStyle="rgba(90,60,130,.45)";x.beginPath();x.moveTo(0,H);x.lineTo(0,H*0.84);x.quadraticCurveTo(W*0.5,H*0.74,W,H*0.88);x.lineTo(W,H);x.fill();
+  return c.toDataURL("image/jpeg",0.9);
+}
+
+/* ========== RETOUCH: ดัดรูป / ลบสิว / ละลายหลัง / โมเสก ========== */
+let retouchMode=false, rwork=null, rblur=null, rmosaic=null, rdown=false, rlast=null;
+const retouch={tool:"liquify",size:0.12,strength:0.5,blur:0.025,block:0.03};
+const minDim=()=>Math.min(S.natW,S.natH);
+function enterRetouch(){
+  rwork=document.createElement("canvas");rwork.width=S.natW;rwork.height=S.natH;
+  rwork.getContext("2d").drawImage(img,0,0);
+  buildRLayers(); retouchMode=true; render();
+}
+function exitRetouch(){ retouchMode=false; rwork=rblur=rmosaic=null; }
+function buildRLayers(){
+  if(!rwork)return;
+  rblur=document.createElement("canvas");rblur.width=S.natW;rblur.height=S.natH;
+  const bc=rblur.getContext("2d");bc.filter=`blur(${Math.max(1,minDim()*retouch.blur)}px)`;bc.drawImage(rwork,0,0);
+  rmosaic=document.createElement("canvas");rmosaic.width=S.natW;rmosaic.height=S.natH;
+  const mc=rmosaic.getContext("2d");const bs=Math.max(4,minDim()*retouch.block);
+  const sw=Math.max(1,Math.round(S.natW/bs)),sh=Math.max(1,Math.round(S.natH/bs));
+  const tmp=document.createElement("canvas");tmp.width=sw;tmp.height=sh;tmp.getContext("2d").drawImage(rwork,0,0,sw,sh);
+  mc.imageSmoothingEnabled=false;mc.drawImage(tmp,0,0,sw,sh,0,0,S.natW,S.natH);
+}
+function rXY(e){const r=dood.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*S.natW,y:(e.clientY-r.top)/r.height*S.natH};}
+function retouchDown(e){ if(!retouchMode)return; rdown=true; dood.setPointerCapture(e.pointerId); rlast=rXY(e); applyTouch(rlast,rlast); render(); }
+function retouchMove(e){ if(!retouchMode||!rdown)return; const p=rXY(e); applyTouch(rlast,p); rlast=p; render(); }
+function retouchUp(){ if(rdown){rdown=false;} }
+function applyTouch(a,b){
+  const t=retouch.tool,r=minDim()*retouch.size;
+  if(t==="liquify"){liquifyStep(a.x,a.y,b.x,b.y,r);return;}
+  const dist=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.max(1,Math.floor(dist/(r*0.35)));
+  for(let i=0;i<=steps;i++){const x=a.x+(b.x-a.x)*i/steps,y=a.y+(b.y-a.y)*i/steps;
+    if(t==="heal")revealLayer(rblur,x,y,r,false,0.7);
+    else if(t==="blur")revealLayer(rblur,x,y,r,false,1);
+    else if(t==="mosaic")revealLayer(rmosaic,x,y,r,true,1);}
+}
+function revealLayer(layer,px,py,r,hard,alpha){
+  if(!layer)return; const rc=rwork.getContext("2d");const d=Math.ceil(2*r);
+  const t=document.createElement("canvas");t.width=d;t.height=d;const tc=t.getContext("2d");
+  tc.drawImage(layer,px-r,py-r,2*r,2*r,0,0,d,d);
+  tc.globalCompositeOperation="destination-in";
+  const g=tc.createRadialGradient(r,r,0,r,r,r);
+  if(hard){g.addColorStop(0,`rgba(0,0,0,${alpha})`);g.addColorStop(.9,`rgba(0,0,0,${alpha})`);g.addColorStop(1,"rgba(0,0,0,0)");}
+  else{g.addColorStop(0,`rgba(0,0,0,${alpha})`);g.addColorStop(.55,`rgba(0,0,0,${alpha*0.9})`);g.addColorStop(1,"rgba(0,0,0,0)");}
+  tc.fillStyle=g;tc.fillRect(0,0,d,d);
+  rc.drawImage(t,px-r,py-r);
+}
+function liquifyStep(ax,ay,bx,by,r){
+  const rc=rwork.getContext("2d");const dx=bx-ax,dy=by-ay;
+  const x0=Math.max(0,Math.floor(bx-r)),y0=Math.max(0,Math.floor(by-r));
+  const x1=Math.min(S.natW,Math.ceil(bx+r)),y1=Math.min(S.natH,Math.ceil(by+r));
+  const w=x1-x0,h=y1-y0; if(w<=0||h<=0)return;
+  const src=rc.getImageData(x0,y0,w,h),sd=src.data;
+  const out=rc.createImageData(w,h),od=out.data; od.set(sd);
+  const str=retouch.strength*1.1;
+  for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+    const px=x0+xx,py=y0+yy,dd=Math.hypot(px-bx,py-by); if(dd>r)continue;
+    const f=1-dd/r,fo=f*f*str; let sx=(px-dx*fo)-x0,sy=(py-dy*fo)-y0;
+    sx=Math.max(0,Math.min(w-1,sx));sy=Math.max(0,Math.min(h-1,sy));
+    const xi=Math.floor(sx),yi=Math.floor(sy),fx=sx-xi,fy=sy-yi;
+    const xi2=Math.min(w-1,xi+1),yi2=Math.min(h-1,yi+1);
+    const i00=(yi*w+xi)*4,i10=(yi*w+xi2)*4,i01=(yi2*w+xi)*4,i11=(yi2*w+xi2)*4,o=(yy*w+xx)*4;
+    for(let c=0;c<4;c++){const top=sd[i00+c]*(1-fx)+sd[i10+c]*fx,bot=sd[i01+c]*(1-fx)+sd[i11+c]*fx;od[o+c]=top*(1-fy)+bot*fy;}
+  }
+  rc.putImageData(out,x0,y0);
+}
+async function applyRetouch(){
+  S.baseSrc=rwork.toDataURL("image/png"); await loadImg(S.baseSrc); fitStage();
+  render(); snapshot();
+  enterRetouch(); refreshPanel();
+}
+function resetRetouch(){ enterRetouch(); refreshPanel(); }
+function panelRetouch(){
+  head("รีทัช");
+  const tools=[["liquify","ดัดรูป"],["heal","ลบสิว"],["blur","ละลายหลัง"],["mosaic","โมเสก"]];
+  const chips=document.createElement("div");chips.className="chips";
+  tools.forEach(([k,l])=>{const c=document.createElement("button");c.className="chip"+(retouch.tool===k?" active":"");c.textContent=l;c.onclick=()=>{retouch.tool=k;refreshPanel();};chips.appendChild(c);});
+  panel.appendChild(chips);
+  panel.append(sliderP("ขนาดหัวแปรง","size",retouch,0.04,0.3,0.005,v=>Math.round(v*100)));
+  if(retouch.tool==="liquify")panel.append(sliderP("แรงดัน","strength",retouch,0.1,1,0.01,v=>Math.round(v*100)));
+  if(retouch.tool==="blur"){const s=sliderP("ความเบลอ","blur",retouch,0.008,0.06,0.001,v=>Math.round(v/0.06*100));s.querySelector("input").addEventListener("change",buildRLayers);panel.append(s);}
+  if(retouch.tool==="mosaic"){const s=sliderP("ขนาดบล็อก","block",retouch,0.012,0.08,0.002,v=>Math.round(v/0.08*100));s.querySelector("input").addEventListener("change",buildRLayers);panel.append(s);}
+  const act=document.createElement("div");act.className="chips";act.style.marginTop="8px";
+  const ap=document.createElement("button");ap.className="chip";ap.style.cssText="background:var(--good);border-color:var(--good);color:#06281f";ap.textContent="✓ ใช้";ap.onclick=applyRetouch;
+  const rs=document.createElement("button");rs.className="chip";rs.textContent="รีเซ็ต";rs.onclick=resetRetouch;
+  act.append(ap,rs);panel.appendChild(act);
+  const n=document.createElement("p");n.className="note";
+  n.textContent={liquify:"ลากดันผิว/รูปร่างให้เรียว (ขยับทีละนิด)",heal:"แตะหรือป้ายบนสิว/ตำหนิเพื่อลบ",blur:"ป้ายบริเวณฉากหลังเพื่อละลาย",mosaic:"ป้ายปิดส่วนที่ไม่ต้องการ"}[retouch.tool];
+  panel.appendChild(n);
+}
+/* slider variant that does NOT auto-snapshot (for retouch live controls) */
+function sliderP(label,key,obj,min,max,step,fmt){
+  const row=document.createElement("div");row.className="row";
+  row.innerHTML=`<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${obj[key]}"><output></output>`;
+  const inp=row.querySelector("input"),out=row.querySelector("output");
+  const show=v=>out.textContent=fmt?fmt(v):v; show(obj[key]);
+  inp.addEventListener("input",()=>{obj[key]=parseFloat(inp.value);show(obj[key]);});
+  return row;
+}
+
+/* ========== COLLAGE / คอลลาจ ========== */
+const COL_LAYOUTS=[
+  [[0,0,.5,1],[.5,0,.5,1]],
+  [[0,0,1,.5],[0,.5,1,.5]],
+  [[0,0,.5,1],[.5,0,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,1,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,.5,.5],[.5,0,.5,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,.3333,1],[.3333,0,.3334,1],[.6667,0,.3333,1]]
+];
+let col=null, colInput=null;
+function openCollage(){
+  col={layout:4,ratio:1,gap:0.02,radius:0.02,bg:"#ffffff",cells:[],sel:0};
+  setLayoutCells();
+  if(!colInput){colInput=document.createElement("input");colInput.type="file";colInput.accept="image/*";colInput.hidden=true;document.body.appendChild(colInput);}
+  const m=$("#colModal")||(()=>{const d=document.createElement("div");d.id="colModal";d.className="modal";document.body.appendChild(d);return d;})();
+  m.innerHTML=`<div class="card" style="max-width:540px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <h3 style="margin:0">คอลลาจ</h3>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="tbtn" id="colClose">ปิด</button>
+        <button class="tbtn primary" id="colDone">เสร็จ</button></div>
+    </div>
+    <canvas id="colCanvas" style="display:block;margin:0 auto;max-width:100%;max-height:48vh;border-radius:10px;touch-action:none;background:#222"></canvas>
+    <p class="note" id="colNote" style="text-align:center">แตะช่องเพื่อเลือก · แตะ “เพิ่มรูป” เพื่อใส่ภาพ · ลากบนช่องเพื่อเลื่อน</p>
+    <div style="display:flex;gap:8px;margin:6px 0"><button class="tbtn primary" id="colAdd" style="flex:1">＋ เพิ่มรูปในช่องที่เลือก</button></div>
+    <div class="row"><label>ซูมช่อง</label><input type="range" id="colZoom" min="1" max="3" step="0.01" value="1"><output id="colZoomO">100</output></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:10px 0 4px">เลย์เอาต์</div>
+    <div class="chips" id="colLayouts"></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:10px 0 4px">สัดส่วน</div>
+    <div class="chips" id="colRatios"></div>
+    <div class="row"><label>ช่องว่าง</label><input type="range" id="colGap" min="0" max="0.06" step="0.002" value="0.02"><output id="colGapO"></output></div>
+    <div class="row"><label>มุมมน</label><input type="range" id="colRad" min="0" max="0.08" step="0.002" value="0.02"><output id="colRadO"></output></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:6px 0 4px">พื้นหลัง</div>
+    <div class="swatches" id="colBg"></div>
+  </div>`;
+  m.hidden=false;
+  const cv=$("#colCanvas"),cx=cv.getContext("2d");
+  col.cv=cv;col.cx=cx;
+  // layout chips
+  const lw=$("#colLayouts"); COL_LAYOUTS.forEach((lo,i)=>{const b=document.createElement("button");b.className="chip"+(col.layout===i?" active":"");b.textContent=lo.length+" ช่อง"+(i>0&&COL_LAYOUTS.findIndex(x=>x.length===lo.length)!==i?" ·":"");
+    b.textContent=["2 ตั้ง","2 นอน","1+2 ตั้ง","1+2 นอน","4 ช่อง","3 ตั้ง"][i];
+    b.onclick=()=>{col.layout=i;setLayoutCells();[...lw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};lw.appendChild(b);});
+  // ratios
+  const rw=$("#colRatios");[["1:1",1],["4:5",4/5],["3:4",3/4],["9:16",9/16]].forEach(([l,r])=>{const b=document.createElement("button");b.className="chip"+(col.ratio===r?" active":"");b.textContent=l;b.onclick=()=>{col.ratio=r;[...rw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};rw.appendChild(b);});
+  // bg swatches
+  const bw=$("#colBg");["#ffffff","#000000","#ffd9e6","#e7e1ff","#d9f3ff","#fff3cf","#f0f0f3"].forEach(c=>{const s=document.createElement("div");s.className="sw"+(c===col.bg?" active":"");s.style.background=c;s.onclick=()=>{col.bg=c;[...bw.children].forEach(x=>x.classList.remove("active"));s.classList.add("active");drawCollage();};bw.appendChild(s);});
+  // controls
+  const gap=$("#colGap"),rad=$("#colRad"),zoom=$("#colZoom");
+  const upO=()=>{$("#colGapO").textContent=Math.round(col.gap*100);$("#colRadO").textContent=Math.round(col.radius/0.08*100);};
+  gap.oninput=()=>{col.gap=+gap.value;upO();drawCollage();};
+  rad.oninput=()=>{col.radius=+rad.value;upO();drawCollage();};
+  zoom.oninput=()=>{const cell=col.cells[col.sel];if(cell){cell.scale=+zoom.value;$("#colZoomO").textContent=Math.round(cell.scale*100);clampCell(cell);drawCollage();}};
+  upO();
+  // add image
+  $("#colAdd").onclick=()=>{colInput.value="";colInput.click();};
+  colInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const im=new Image();im.onload=()=>{const cell=col.cells[col.sel]||col.cells[0];cell.img=im;cell.scale=1;cell.ox=0;cell.oy=0;$("#colZoom").value=1;$("#colZoomO").textContent="100";drawCollage();};im.src=rd.result;};rd.readAsDataURL(f);};
+  // canvas interaction
+  let dragging=false,ds=null;
+  cv.addEventListener("pointerdown",ev=>{const p=colPoint(ev);const i=hitCell(p);if(i>=0){col.sel=i;const z=col.cells[i].scale;$("#colZoom").value=z;$("#colZoomO").textContent=Math.round(z*100);drawCollage();}
+    dragging=true;ds=p;cv.setPointerCapture(ev.pointerId);});
+  cv.addEventListener("pointermove",ev=>{if(!dragging)return;const p=colPoint(ev);const cell=col.cells[col.sel];if(cell&&cell.img){cell.ox+=(p.x-ds.x);cell.oy+=(p.y-ds.y);clampCell(cell);drawCollage();}ds=p;});
+  cv.addEventListener("pointerup",()=>{dragging=false;});
+  $("#colClose").onclick=()=>{m.hidden=true;};
+  m.onclick=e=>{if(e.target===m)m.hidden=true;};
+  $("#colDone").onclick=async()=>{const url=renderCollage(true);m.hidden=true;await setNewImage(url,true);selectTab("filter");};
+  drawCollage();
+}
+function setLayoutCells(){const n=COL_LAYOUTS[col.layout].length;while(col.cells.length<n)col.cells.push({img:null,scale:1,ox:0,oy:0});if(col.sel>=n)col.sel=0;}
+function colDims(){const W=1080,H=Math.round(1080/col.ratio);return {W,H};}
+function colPoint(ev){const r=col.cv.getBoundingClientRect();return {x:(ev.clientX-r.left)/r.width*col.cv.width,y:(ev.clientY-r.top)/r.height*col.cv.height};}
+function hitCell(p){const {W,H}=colDims();const lo=COL_LAYOUTS[col.layout];for(let i=0;i<lo.length;i++){const[rx,ry,rw2,rh2]=lo[i];if(p.x>=rx*W&&p.x<=(rx+rw2)*W&&p.y>=ry*H&&p.y<=(ry+rh2)*H)return i;}return -1;}
+function cellRect(i){const {W,H}=colDims();const[rx,ry,rw2,rh2]=COL_LAYOUTS[col.layout][i];const g=col.gap*W/2;return {x:rx*W+g,y:ry*H+g,w:rw2*W-g*2,h:rh2*H-g*2};}
+function cellCover(cell,R){const s=Math.max(R.w/cell.img.width,R.h/cell.img.height)*cell.scale;return {dw:cell.img.width*s,dh:cell.img.height*s};}
+function clampCell(cell){if(!cell.img)return;const i=col.cells.indexOf(cell);const R=cellRect(i);const{dw,dh}=cellCover(cell,R);const mx=(dw-R.w)/2,my=(dh-R.h)/2;cell.ox=Math.max(-mx,Math.min(mx,cell.ox));cell.oy=Math.max(-my,Math.min(my,cell.oy));}
+function renderCollage(final){
+  const {W,H}=colDims();const cv=col.cv||document.createElement("canvas");cv.width=W;cv.height=H;const cx=cv.getContext("2d");
+  cx.fillStyle=col.bg;cx.fillRect(0,0,W,H);
+  const rad=col.radius*Math.min(W,H);const lo=COL_LAYOUTS[col.layout];
+  lo.forEach((r,i)=>{const R=cellRect(i);cx.save();roundRect(cx,R.x,R.y,R.w,R.h,rad);cx.clip();const cell=col.cells[i];
+    if(cell&&cell.img){const{dw,dh}=cellCover(cell,R);const dx=R.x+(R.w-dw)/2+cell.ox,dy=R.y+(R.h-dh)/2+cell.oy;cx.drawImage(cell.img,dx,dy,dw,dh);}
+    else{cx.fillStyle="#e9e9ef";cx.fillRect(R.x,R.y,R.w,R.h);if(!final){cx.fillStyle="#9aa3b2";cx.font=`${Math.min(R.w,R.h)*0.2}px sans-serif`;cx.textAlign="center";cx.textBaseline="middle";cx.fillText("＋",R.x+R.w/2,R.y+R.h/2);}}
+    cx.restore();
+    if(!final&&i===col.sel){cx.strokeStyle="#ff5c8a";cx.lineWidth=Math.max(4,W*0.006);roundRect(cx,R.x,R.y,R.w,R.h,rad);cx.stroke();}});
+  return cv.toDataURL("image/jpeg",0.92);
+}
+function drawCollage(){ renderCollage(false); }
+
+/* ========== AUTO-ENHANCE (histogram auto-levels + white balance) ========== */
+$("#btnAuto").onclick=autoEnhance;
+async function autoEnhance(){
+  if(!S.baseSrc)return; const btn=$("#btnAuto"); const old=btn.textContent; btn.textContent="…"; btn.disabled=true;
+  await new Promise(r=>setTimeout(r,20));
+  try{
+    const s=Math.min(1,480/Math.max(S.natW,S.natH));
+    const sc=document.createElement("canvas");sc.width=Math.max(1,Math.round(S.natW*s));sc.height=Math.max(1,Math.round(S.natH*s));
+    const scx=sc.getContext("2d");scx.drawImage(img,0,0,sc.width,sc.height);
+    const d=scx.getImageData(0,0,sc.width,sc.height).data;
+    const hist=[new Uint32Array(256),new Uint32Array(256),new Uint32Array(256)];
+    for(let i=0;i<d.length;i+=4){hist[0][d[i]]++;hist[1][d[i+1]]++;hist[2][d[i+2]]++;}
+    const total=sc.width*sc.height, clip=total*0.004, lo=[0,0,0], hi=[255,255,255];
+    for(let c=0;c<3;c++){let a=0;for(let v=0;v<256;v++){a+=hist[c][v];if(a>clip){lo[c]=v;break;}}a=0;for(let v=255;v>=0;v--){a+=hist[c][v];if(a>clip){hi[c]=v;break;}}if(hi[c]<=lo[c])hi[c]=Math.min(255,lo[c]+1);}
+    const lut=[new Uint8ClampedArray(256),new Uint8ClampedArray(256),new Uint8ClampedArray(256)];
+    for(let c=0;c<3;c++)for(let v=0;v<256;v++)lut[c][v]=(v-lo[c])*255/(hi[c]-lo[c]);
+    const out=document.createElement("canvas");out.width=S.natW;out.height=S.natH;const ox=out.getContext("2d");ox.drawImage(img,0,0);
+    const im=ox.getImageData(0,0,S.natW,S.natH),p=im.data;
+    for(let i=0;i<p.length;i+=4){p[i]=lut[0][p[i]];p[i+1]=lut[1][p[i+1]];p[i+2]=lut[2][p[i+2]];}
+    ox.putImageData(im,0,0);
+    // gentle saturation + warmth lift
+    S.adjust.saturation=Math.min(2,S.adjust.saturation*1.08);
+    await rebake(out);
+  }finally{ btn.textContent=old; btn.disabled=false; }
+}
+
+/* ========== WATERMARK / โลโก้ ========== */
+let wmInput=null;
+function selectedOv(){ return S.overlays.find(o=>o.el===selEl) || S.overlays[S.overlays.length-1] || null; }
+function panelWatermark(){
+  head("ลายน้ำ / โลโก้");
+  const ta=document.createElement("textarea");ta.className="ta";ta.rows=1;ta.placeholder="ชื่อแบรนด์ / ข้อความลายน้ำ…";panel.appendChild(ta);
+  const row=document.createElement("div");row.style.cssText="display:flex;gap:8px;margin-top:8px";
+  const addT=document.createElement("button");addT.className="tbtn primary";addT.style.flex="1";addT.textContent="＋ ข้อความ";
+  addT.onclick=()=>{const t=ta.value.trim()||"@brand";addOverlay({type:"text",content:t,color:"#ffffff",opacity:0.55,size:34,x:0.8,y:0.94});ta.value="";refreshPanel();};
+  const addL=document.createElement("button");addL.className="tbtn";addL.style.flex="1";addL.textContent="⤒ อัปโหลดโลโก้";
+  addL.onclick=()=>{ if(!wmInput){wmInput=document.createElement("input");wmInput.type="file";wmInput.accept="image/*";wmInput.hidden=true;document.body.appendChild(wmInput);}
+    wmInput.value="";wmInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{addOverlay({type:"image",content:rd.result,opacity:0.9,size:130,x:0.84,y:0.9});refreshPanel();};rd.readAsDataURL(f);};wmInput.click(); };
+  row.append(addT,addL);panel.appendChild(row);
+
+  const o=selectedOv();
+  if(o){
+    const lbl=document.createElement("div");lbl.style.cssText="font-size:.78rem;color:var(--muted);margin:12px 0 4px";lbl.textContent="ตำแหน่ง (ของชิ้นที่เลือก)";panel.appendChild(lbl);
+    const grid=document.createElement("div");grid.style.cssText="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:150px";
+    const XS=[0.12,0.5,0.88],YS=[0.12,0.5,0.9];
+    YS.forEach(y=>XS.forEach(x=>{const b=document.createElement("button");b.className="chip";b.style.cssText="padding:10px 0;text-align:center";b.textContent="•";
+      b.onclick=()=>{const t=selectedOv();if(t){t.x=x;t.y=y;positionOv(t);snapshot();}};grid.appendChild(b);}));
+    panel.appendChild(grid);
+    const op=document.createElement("div");op.className="row";op.innerHTML=`<label>ความจาง</label><input type="range" min="0.1" max="1" step="0.01" value="${o.opacity}"><output>${Math.round(o.opacity*100)}</output>`;
+    const inp=op.querySelector("input"),out=op.querySelector("output");
+    inp.addEventListener("input",()=>{const t=selectedOv();if(t){t.opacity=+inp.value;t.el.style.opacity=t.opacity;out.textContent=Math.round(t.opacity*100);}});
+    inp.addEventListener("change",snapshot);
+    panel.appendChild(op);
+  }
+  const n=document.createElement("p");n.className="note";n.textContent="เพิ่มแล้วลาก/ย่อ-ขยายได้ · จับมุมชมพูเพื่อปรับขนาด · เหมาะกับติดแบรนด์งาน affiliate";panel.appendChild(n);
+}
+
+/* ========== AI (direct key OR Cloudflare Worker proxy) ========== */
+const AI_KEY="glow.ai.worker", KEY_K="glow.ai.key", PROV_K="glow.ai.prov";
+const GEMINI_MODEL="gemini-2.5-flash-image", OPENAI_MODEL="gpt-image-1";
+let aiBusy=false;
+const PROMPTS={
+  remove_bg:"Remove the background completely and replace it with solid white. Keep the main foreground subject intact with clean, accurate edges.",
+  enhance:"Enhance this photo to high quality: increase sharpness and real detail, denoise, improve lighting and color, keep it natural and photorealistic. Do not change the content, identity, or composition.",
+};
+function getWorker(){ try{return localStorage.getItem(AI_KEY)||"";}catch(_){return "";} }
+function setWorker(u){ try{localStorage.setItem(AI_KEY,u);}catch(_){} }
+function getKey(){ try{return localStorage.getItem(KEY_K)||"";}catch(_){return "";} }
+function setKey(k){ try{localStorage.setItem(KEY_K,k);}catch(_){} }
+function getProv(){ try{return localStorage.getItem(PROV_K)||"gemini";}catch(_){return "gemini";} }
+function setProv(p){ try{localStorage.setItem(PROV_K,p);}catch(_){} }
+function splitDataURL(d){ const m=/^data:([^;]+);base64,(.*)$/s.exec(d); return m?{mime:m[1],b64:m[2]}:{mime:"image/png",b64:d}; }
+function b64ToBlob(b64,mime){ const bin=atob(b64),a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return new Blob([a],{type:mime||"image/png"}); }
+async function callDirect(op,image,prompt){
+  return getProv()==="openai" ? openaiDirect(getKey(),image,prompt) : geminiDirect(getKey(),image,prompt);
+}
+async function geminiDirect(key,image,prompt){
+  const img=splitDataURL(image);
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:img.mime,data:img.b64}}]}]})});
+  const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data?.error?.message||("Gemini HTTP "+r.status));
+  const parts=data?.candidates?.[0]?.content?.parts||[]; const ip=parts.find(p=>p.inline_data||p.inlineData); const inl=ip&&(ip.inline_data||ip.inlineData);
+  if(!inl)throw new Error("ไม่มีรูปกลับมา (อาจต้องเปลี่ยนชื่อโมเดล/โควตาหมด)");
+  return `data:${inl.mime_type||inl.mimeType||"image/png"};base64,${inl.data}`;
+}
+async function openaiDirect(key,image,prompt){
+  const img=splitDataURL(image); const form=new FormData();
+  form.append("model",OPENAI_MODEL); form.append("prompt",prompt); form.append("image",b64ToBlob(img.b64,img.mime),"image.png");
+  const r=await fetch("https://api.openai.com/v1/images/edits",{method:"POST",headers:{Authorization:"Bearer "+key},body:form});
+  const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data?.error?.message||("OpenAI HTTP "+r.status));
+  const b64=data?.data?.[0]?.b64_json; if(!b64)throw new Error("ไม่มีรูปกลับมา"); return "data:image/png;base64,"+b64;
+}
+function aiOverlay(on,msg){ const b=$("#aiBusy"); if(msg)$("#aiBusyMsg").textContent=msg; b.hidden=!on; }
+let toastT=null;
+function aiToast(msg){ let t=$("#aiToast"); if(!t){t=document.createElement("div");t.id="aiToast";document.body.appendChild(t);} t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true;},3200); }
+function aiImage(max){ const ar=S.natW/S.natH; let w=S.natW,h=S.natH;
+  if(Math.max(w,h)>max){ if(w>=h){w=max;h=Math.round(max/ar);} else {h=max;w=Math.round(max*ar);} }
+  const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+  return c.toDataURL("image/jpeg",0.92); }
+async function applyAI(src){ S.baseSrc=src; await loadImg(src); fitStage(); dctx.clearRect(0,0,dood.width,dood.height); render(); repositionAll(); snapshot(); }
+async function aiRun(op,prompt){
+  const url=getWorker(), key=getKey();
+  if(!url && !key){ aiToast("วาง API Key ของคุณก่อน แล้วกด 💾"); return; }
+  if(op==="edit" && !prompt){ aiToast("พิมพ์คำสั่งก่อน เช่น “ลบคนข้างหลังออก”"); return; }
+  if(aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังประมวลผล AI… (ปกติ 10–30 วินาที)");
+  try{
+    const image=aiImage(1280);
+    let fp=prompt; if(!fp && PROMPTS[op]) fp=PROMPTS[op]; if(!fp) fp="Edit this image as requested.";
+    let result;
+    if(url){
+      const payload={op,image}; if(prompt)payload.prompt=prompt;
+      const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      const data=await r.json().catch(()=>({error:"อ่านผลลัพธ์ไม่ได้ (ตรวจ URL/CORS)"}));
+      if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
+      result=data.image;
+    } else {
+      result=await callDirect(op,image,fp);
+    }
+    if(!result) throw new Error("ไม่มีรูปกลับมา");
+    await applyAI(result); aiToast("เสร็จ ✓ (แต่งต่อด้วยเครื่องมืออื่นได้เลย)");
+  }catch(e){ aiToast("ผิดพลาด: "+(e.message||e)); }
+  finally{ aiBusy=false; aiOverlay(false); }
+}
+function panelAI(){
+  head("AI ขั้นสูง");
+  const prov=getProv(), key=getKey();
+  // provider toggle
+  const pv=document.createElement("div");pv.className="chips";
+  [["gemini","Gemini"],["openai","OpenAI"]].forEach(([k,l])=>{const c=document.createElement("button");c.className="chip"+(prov===k?" active":"");c.textContent=l;c.onclick=()=>{setProv(k);refreshPanel();};pv.appendChild(c);});
+  panel.appendChild(pv);
+  // API key (simple mode)
+  const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  kr.innerHTML=`<input class="aiInput" id="aiKey" type="password" autocomplete="off" placeholder="วาง ${prov==="openai"?"OpenAI":"Gemini"} API Key ที่นี่" value="${key.replace(/"/g,"&quot;")}">`;
+  const ks=document.createElement("button");ks.className="chip";ks.textContent=key?"✓ 💾":"💾";ks.title="บันทึกคีย์";
+  ks.onclick=()=>{ setKey($("#aiKey").value.trim()); aiToast("บันทึกคีย์แล้ว (เก็บในเครื่องคุณเท่านั้น)"); refreshPanel(); };
+  kr.appendChild(ks);panel.appendChild(kr);
+
+  const g=document.createElement("div");g.className="chips";g.style.marginTop="10px";
+  const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
+  g.append(
+    mk("🪄 ลบพื้นหลัง","remove_bg"),
+    mk("✨ HD / เพิ่มความคมชัด","enhance"),
+    mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."),
+  );
+  panel.appendChild(g);
+
+  const pr=document.createElement("div");pr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  pr.innerHTML=`<input class="aiInput" id="aiPrompt" placeholder="สั่งแก้ด้วยข้อความ เช่น ลบแก้วกาแฟออก / เปลี่ยนพื้นหลังเป็นชายหาด">`;
+  const pb=document.createElement("button");pb.className="tbtn primary";pb.textContent="ทำ";pb.onclick=()=>aiRun("edit",$("#aiPrompt").value.trim());
+  pr.appendChild(pb);panel.appendChild(pr);
+
+  const n=document.createElement("p");n.className="note";
+  n.innerHTML = key
+    ? "คีย์เก็บในเครื่องคุณเท่านั้น · สั่งอะไรก็ได้ด้วยข้อความ · ⚠️ ต้องเปิดแอปบน <b>เว็บจริง</b> (เช่น GitHub Pages) — ในหน้าตัวอย่าง claude.ai นี้เรียก AI ไม่ได้ (ถูกบล็อก)"
+    : `วาง API Key แล้วกด 💾 → ใช้ได้เลย (คีย์อยู่ในเครื่องคุณ ไม่ถูกส่งให้ใคร) · เอาคีย์ Gemini ฟรีได้ที่ aistudio.google.com`;
+  panel.appendChild(n);
+
+  // advanced: worker url
+  const adv=document.createElement("details");adv.style.marginTop="10px";
+  const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="ขั้นสูง: ใช้ Cloudflare Worker แทน (ปลอดภัยกว่าสำหรับแชร์หลายคน)";adv.appendChild(sm);
+  const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  wr.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="Worker URL" value="${getWorker().replace(/"/g,"&quot;")}">`;
+  const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก URL แล้ว (จะใช้ Worker แทนคีย์ตรง)"); };
+  wr.appendChild(ws);adv.appendChild(wr);panel.appendChild(adv);
+}
+
+/* ========== FULLSCREEN ========== */
+const btnFull=$("#btnFull");
+const fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement;
+btnFull.onclick=async()=>{
+  try{
+    if(fsEl()){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); }
+    else{ const el=document.getElementById("app"); const rq=el.requestFullscreen||el.webkitRequestFullscreen; if(!rq)throw 0; const pr=rq.call(el); if(pr&&pr.catch)await pr; }
+  }catch(_){ aiToast("อุปกรณ์นี้เปิดเต็มจอในแอปไม่ได้ (เช่น iPhone) — กดปุ่มขยาย ⤢ ของ claude.ai ด้านบน หรือเปิดลิงก์ในเบราว์เซอร์โดยตรง"); }
+};
+document.addEventListener("fullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
+document.addEventListener("webkitfullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
+
+/* ---------- init ---------- */
+function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
+window.addEventListener("resize",onResize);
+try{ new ResizeObserver(()=>onResize()).observe(stage); }catch(_){}
+(async function init(){
+  buildTabs();
+  await setNewImage(makeSample(),false);
+  emptyHint.style.display="block";
+})();
+</script>
+</body>
+</html>
