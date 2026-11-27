@@ -264,7 +264,9 @@ function paint(ctx,W,H,blurScale){
   if(vig>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);
     g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${vig})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
 }
-function render(){ if(!S.baseSrc)return; paint(bctx,base.width,base.height, base.width/S.natW*4); }
+function render(){ if(!S.baseSrc)return;
+  if(retouchMode){ bctx.setTransform(1,0,0,1,0,0); bctx.clearRect(0,0,base.width,base.height); bctx.drawImage(rwork,0,0,base.width,base.height); return; }
+  paint(bctx,base.width,base.height, base.width/S.natW*4); }
 
 /* ---------- frame ---------- */
 const FRAMES={none:{},white:{p:.04,bg:"#fff"},black:{p:.04,bg:"#111"},round:{radius:.06},
@@ -326,15 +328,15 @@ overlay.addEventListener("pointerdown",e=>{ if(e.target===overlay) clearSel(); }
 /* ---------- doodle ---------- */
 let drawing=false,last=null;
 function doodleXY(e){ const r=dood.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*dood.width,y:(e.clientY-r.top)/r.height*dood.height}; }
-function dStart(e){ if(S.tab!=="doodle")return; drawing=true; dood.setPointerCapture(e.pointerId); last=doodleXY(e); dDraw(e); }
-function dDraw(e){ if(!drawing)return; const p=doodleXY(e);
+function dStart(e){ if(S.tab==="retouch"){retouchDown(e);return;} if(S.tab!=="doodle")return; drawing=true; dood.setPointerCapture(e.pointerId); last=doodleXY(e); dDraw(e); }
+function dDraw(e){ if(S.tab==="retouch"){retouchMove(e);return;} if(!drawing)return; const p=doodleXY(e);
   dctx.save(); dctx.lineCap="round";dctx.lineJoin="round";
   dctx.globalCompositeOperation=S.doodle.erase?"destination-out":"source-over";
   dctx.strokeStyle=S.doodle.color; dctx.lineWidth=S.doodle.size*(dood.width/base.clientWidth);
   dctx.beginPath();dctx.moveTo(last.x,last.y);dctx.lineTo(p.x,p.y);dctx.stroke();dctx.restore();
   last=p;
 }
-function dEnd(){ if(drawing){drawing=false;snapshot();} }
+function dEnd(){ if(S.tab==="retouch"){retouchUp();return;} if(drawing){drawing=false;snapshot();} }
 dood.addEventListener("pointerdown",dStart);
 dood.addEventListener("pointermove",dDraw);
 dood.addEventListener("pointerup",dEnd);
@@ -346,11 +348,13 @@ const TABS=[
   ["filter","ฟิลเตอร์",'<path d="M3 5h18M6 12h12M10 19h4"/>'],
   ["adjust","ปรับแต่ง",'<circle cx="8" cy="7" r="2"/><path d="M8 9v9M8 3v2"/><circle cx="16" cy="15" r="2"/><path d="M16 3v10M16 17v4"/>'],
   ["beauty","บิวตี้",'<path d="M12 21s-7-4.5-7-10a4 4 0 017-2.5A4 4 0 0119 11c0 5.5-7 10-7 10z"/>'],
+  ["retouch","รีทัช",'<path d="M4 20l9-9M13 5l2 2M18 10l2 2M14 4l2 2-9 9-2-2z"/>'],
   ["crop","ครอป",'<path d="M6 2v16h16M2 6h16v16"/>'],
   ["sticker","สติกเกอร์",'<circle cx="12" cy="12" r="9"/><path d="M8 10h.01M15 10h.01M8.5 15a4 4 0 007 0"/>'],
   ["text","ข้อความ",'<path d="M4 6V4h16v2M12 4v16M8 20h8"/>'],
   ["frame","กรอบ",'<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/>'],
-  ["doodle","วาด",'<path d="M3 21l3-1 11-11-2-2L4 18l-1 3zM14 5l3 3"/>']
+  ["doodle","วาด",'<path d="M3 21l3-1 11-11-2-2L4 18l-1 3zM14 5l3 3"/>'],
+  ["collage","คอลลาจ",'<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/>']
 ];
 function buildTabs(){
   tabbar.innerHTML="";
@@ -358,7 +362,11 @@ function buildTabs(){
     b.innerHTML=`<svg viewBox="0 0 24 24">${svg}</svg><span>${label}</span>`;
     b.onclick=()=>selectTab(k); tabbar.appendChild(b); });
 }
-function selectTab(k){ S.tab=k; cancelCrop(); setDoodleActive(k==="doodle"); if(k!=="sticker"&&k!=="text")clearSel();
+function selectTab(k){
+  if(retouchMode && k!=="retouch") exitRetouch();
+  if(k==="collage"){ openCollage(); return; }
+  S.tab=k; cancelCrop(); setDoodleActive(k==="doodle"||k==="retouch"); if(k!=="sticker"&&k!=="text")clearSel();
+  if(k==="retouch") enterRetouch();
   buildTabs(); refreshPanel(); }
 
 /* ---------- panels ---------- */
@@ -384,6 +392,7 @@ function refreshPanel(){
   else if(k==="text")panelText();
   else if(k==="frame")panelFrame();
   else if(k==="doodle")panelDoodle();
+  else if(k==="retouch")panelRetouch();
 }
 function head(title,resetFn){
   const h=document.createElement("div");h.className="panelHead";
@@ -665,6 +674,190 @@ function makeSample(){
   x.fillStyle="rgba(90,60,130,.45)";x.beginPath();x.moveTo(0,H);x.lineTo(0,H*0.84);x.quadraticCurveTo(W*0.5,H*0.74,W,H*0.88);x.lineTo(W,H);x.fill();
   return c.toDataURL("image/jpeg",0.9);
 }
+
+/* ========== RETOUCH: ดัดรูป / ลบสิว / ละลายหลัง / โมเสก ========== */
+let retouchMode=false, rwork=null, rblur=null, rmosaic=null, rdown=false, rlast=null;
+const retouch={tool:"liquify",size:0.12,strength:0.5,blur:0.025,block:0.03};
+const minDim=()=>Math.min(S.natW,S.natH);
+function enterRetouch(){
+  rwork=document.createElement("canvas");rwork.width=S.natW;rwork.height=S.natH;
+  rwork.getContext("2d").drawImage(img,0,0);
+  buildRLayers(); retouchMode=true; render();
+}
+function exitRetouch(){ retouchMode=false; rwork=rblur=rmosaic=null; }
+function buildRLayers(){
+  if(!rwork)return;
+  rblur=document.createElement("canvas");rblur.width=S.natW;rblur.height=S.natH;
+  const bc=rblur.getContext("2d");bc.filter=`blur(${Math.max(1,minDim()*retouch.blur)}px)`;bc.drawImage(rwork,0,0);
+  rmosaic=document.createElement("canvas");rmosaic.width=S.natW;rmosaic.height=S.natH;
+  const mc=rmosaic.getContext("2d");const bs=Math.max(4,minDim()*retouch.block);
+  const sw=Math.max(1,Math.round(S.natW/bs)),sh=Math.max(1,Math.round(S.natH/bs));
+  const tmp=document.createElement("canvas");tmp.width=sw;tmp.height=sh;tmp.getContext("2d").drawImage(rwork,0,0,sw,sh);
+  mc.imageSmoothingEnabled=false;mc.drawImage(tmp,0,0,sw,sh,0,0,S.natW,S.natH);
+}
+function rXY(e){const r=dood.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*S.natW,y:(e.clientY-r.top)/r.height*S.natH};}
+function retouchDown(e){ if(!retouchMode)return; rdown=true; dood.setPointerCapture(e.pointerId); rlast=rXY(e); applyTouch(rlast,rlast); render(); }
+function retouchMove(e){ if(!retouchMode||!rdown)return; const p=rXY(e); applyTouch(rlast,p); rlast=p; render(); }
+function retouchUp(){ if(rdown){rdown=false;} }
+function applyTouch(a,b){
+  const t=retouch.tool,r=minDim()*retouch.size;
+  if(t==="liquify"){liquifyStep(a.x,a.y,b.x,b.y,r);return;}
+  const dist=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.max(1,Math.floor(dist/(r*0.35)));
+  for(let i=0;i<=steps;i++){const x=a.x+(b.x-a.x)*i/steps,y=a.y+(b.y-a.y)*i/steps;
+    if(t==="heal")revealLayer(rblur,x,y,r,false,0.7);
+    else if(t==="blur")revealLayer(rblur,x,y,r,false,1);
+    else if(t==="mosaic")revealLayer(rmosaic,x,y,r,true,1);}
+}
+function revealLayer(layer,px,py,r,hard,alpha){
+  if(!layer)return; const rc=rwork.getContext("2d");const d=Math.ceil(2*r);
+  const t=document.createElement("canvas");t.width=d;t.height=d;const tc=t.getContext("2d");
+  tc.drawImage(layer,px-r,py-r,2*r,2*r,0,0,d,d);
+  tc.globalCompositeOperation="destination-in";
+  const g=tc.createRadialGradient(r,r,0,r,r,r);
+  if(hard){g.addColorStop(0,`rgba(0,0,0,${alpha})`);g.addColorStop(.9,`rgba(0,0,0,${alpha})`);g.addColorStop(1,"rgba(0,0,0,0)");}
+  else{g.addColorStop(0,`rgba(0,0,0,${alpha})`);g.addColorStop(.55,`rgba(0,0,0,${alpha*0.9})`);g.addColorStop(1,"rgba(0,0,0,0)");}
+  tc.fillStyle=g;tc.fillRect(0,0,d,d);
+  rc.drawImage(t,px-r,py-r);
+}
+function liquifyStep(ax,ay,bx,by,r){
+  const rc=rwork.getContext("2d");const dx=bx-ax,dy=by-ay;
+  const x0=Math.max(0,Math.floor(bx-r)),y0=Math.max(0,Math.floor(by-r));
+  const x1=Math.min(S.natW,Math.ceil(bx+r)),y1=Math.min(S.natH,Math.ceil(by+r));
+  const w=x1-x0,h=y1-y0; if(w<=0||h<=0)return;
+  const src=rc.getImageData(x0,y0,w,h),sd=src.data;
+  const out=rc.createImageData(w,h),od=out.data; od.set(sd);
+  const str=retouch.strength*1.1;
+  for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+    const px=x0+xx,py=y0+yy,dd=Math.hypot(px-bx,py-by); if(dd>r)continue;
+    const f=1-dd/r,fo=f*f*str; let sx=(px-dx*fo)-x0,sy=(py-dy*fo)-y0;
+    sx=Math.max(0,Math.min(w-1,sx));sy=Math.max(0,Math.min(h-1,sy));
+    const xi=Math.floor(sx),yi=Math.floor(sy),fx=sx-xi,fy=sy-yi;
+    const xi2=Math.min(w-1,xi+1),yi2=Math.min(h-1,yi+1);
+    const i00=(yi*w+xi)*4,i10=(yi*w+xi2)*4,i01=(yi2*w+xi)*4,i11=(yi2*w+xi2)*4,o=(yy*w+xx)*4;
+    for(let c=0;c<4;c++){const top=sd[i00+c]*(1-fx)+sd[i10+c]*fx,bot=sd[i01+c]*(1-fx)+sd[i11+c]*fx;od[o+c]=top*(1-fy)+bot*fy;}
+  }
+  rc.putImageData(out,x0,y0);
+}
+async function applyRetouch(){
+  S.baseSrc=rwork.toDataURL("image/png"); await loadImg(S.baseSrc); fitStage();
+  render(); snapshot();
+  enterRetouch(); refreshPanel();
+}
+function resetRetouch(){ enterRetouch(); refreshPanel(); }
+function panelRetouch(){
+  head("รีทัช");
+  const tools=[["liquify","ดัดรูป"],["heal","ลบสิว"],["blur","ละลายหลัง"],["mosaic","โมเสก"]];
+  const chips=document.createElement("div");chips.className="chips";
+  tools.forEach(([k,l])=>{const c=document.createElement("button");c.className="chip"+(retouch.tool===k?" active":"");c.textContent=l;c.onclick=()=>{retouch.tool=k;refreshPanel();};chips.appendChild(c);});
+  panel.appendChild(chips);
+  panel.append(sliderP("ขนาดหัวแปรง","size",retouch,0.04,0.3,0.005,v=>Math.round(v*100)));
+  if(retouch.tool==="liquify")panel.append(sliderP("แรงดัน","strength",retouch,0.1,1,0.01,v=>Math.round(v*100)));
+  if(retouch.tool==="blur"){const s=sliderP("ความเบลอ","blur",retouch,0.008,0.06,0.001,v=>Math.round(v/0.06*100));s.querySelector("input").addEventListener("change",buildRLayers);panel.append(s);}
+  if(retouch.tool==="mosaic"){const s=sliderP("ขนาดบล็อก","block",retouch,0.012,0.08,0.002,v=>Math.round(v/0.08*100));s.querySelector("input").addEventListener("change",buildRLayers);panel.append(s);}
+  const act=document.createElement("div");act.className="chips";act.style.marginTop="8px";
+  const ap=document.createElement("button");ap.className="chip";ap.style.cssText="background:var(--good);border-color:var(--good);color:#06281f";ap.textContent="✓ ใช้";ap.onclick=applyRetouch;
+  const rs=document.createElement("button");rs.className="chip";rs.textContent="รีเซ็ต";rs.onclick=resetRetouch;
+  act.append(ap,rs);panel.appendChild(act);
+  const n=document.createElement("p");n.className="note";
+  n.textContent={liquify:"ลากดันผิว/รูปร่างให้เรียว (ขยับทีละนิด)",heal:"แตะหรือป้ายบนสิว/ตำหนิเพื่อลบ",blur:"ป้ายบริเวณฉากหลังเพื่อละลาย",mosaic:"ป้ายปิดส่วนที่ไม่ต้องการ"}[retouch.tool];
+  panel.appendChild(n);
+}
+/* slider variant that does NOT auto-snapshot (for retouch live controls) */
+function sliderP(label,key,obj,min,max,step,fmt){
+  const row=document.createElement("div");row.className="row";
+  row.innerHTML=`<label>${label}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${obj[key]}"><output></output>`;
+  const inp=row.querySelector("input"),out=row.querySelector("output");
+  const show=v=>out.textContent=fmt?fmt(v):v; show(obj[key]);
+  inp.addEventListener("input",()=>{obj[key]=parseFloat(inp.value);show(obj[key]);});
+  return row;
+}
+
+/* ========== COLLAGE / คอลลาจ ========== */
+const COL_LAYOUTS=[
+  [[0,0,.5,1],[.5,0,.5,1]],
+  [[0,0,1,.5],[0,.5,1,.5]],
+  [[0,0,.5,1],[.5,0,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,1,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,.5,.5],[.5,0,.5,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
+  [[0,0,.3333,1],[.3333,0,.3334,1],[.6667,0,.3333,1]]
+];
+let col=null, colInput=null;
+function openCollage(){
+  col={layout:4,ratio:1,gap:0.02,radius:0.02,bg:"#ffffff",cells:[],sel:0};
+  setLayoutCells();
+  if(!colInput){colInput=document.createElement("input");colInput.type="file";colInput.accept="image/*";colInput.hidden=true;document.body.appendChild(colInput);}
+  const m=$("#colModal")||(()=>{const d=document.createElement("div");d.id="colModal";d.className="modal";document.body.appendChild(d);return d;})();
+  m.innerHTML=`<div class="card" style="max-width:540px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <h3 style="margin:0">คอลลาจ</h3>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="tbtn" id="colClose">ปิด</button>
+        <button class="tbtn primary" id="colDone">เสร็จ</button></div>
+    </div>
+    <canvas id="colCanvas" style="display:block;margin:0 auto;max-width:100%;max-height:48vh;border-radius:10px;touch-action:none;background:#222"></canvas>
+    <p class="note" id="colNote" style="text-align:center">แตะช่องเพื่อเลือก · แตะ “เพิ่มรูป” เพื่อใส่ภาพ · ลากบนช่องเพื่อเลื่อน</p>
+    <div style="display:flex;gap:8px;margin:6px 0"><button class="tbtn primary" id="colAdd" style="flex:1">＋ เพิ่มรูปในช่องที่เลือก</button></div>
+    <div class="row"><label>ซูมช่อง</label><input type="range" id="colZoom" min="1" max="3" step="0.01" value="1"><output id="colZoomO">100</output></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:10px 0 4px">เลย์เอาต์</div>
+    <div class="chips" id="colLayouts"></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:10px 0 4px">สัดส่วน</div>
+    <div class="chips" id="colRatios"></div>
+    <div class="row"><label>ช่องว่าง</label><input type="range" id="colGap" min="0" max="0.06" step="0.002" value="0.02"><output id="colGapO"></output></div>
+    <div class="row"><label>มุมมน</label><input type="range" id="colRad" min="0" max="0.08" step="0.002" value="0.02"><output id="colRadO"></output></div>
+    <div style="font-size:.78rem;color:var(--muted);margin:6px 0 4px">พื้นหลัง</div>
+    <div class="swatches" id="colBg"></div>
+  </div>`;
+  m.hidden=false;
+  const cv=$("#colCanvas"),cx=cv.getContext("2d");
+  col.cv=cv;col.cx=cx;
+  // layout chips
+  const lw=$("#colLayouts"); COL_LAYOUTS.forEach((lo,i)=>{const b=document.createElement("button");b.className="chip"+(col.layout===i?" active":"");b.textContent=lo.length+" ช่อง"+(i>0&&COL_LAYOUTS.findIndex(x=>x.length===lo.length)!==i?" ·":"");
+    b.textContent=["2 ตั้ง","2 นอน","1+2 ตั้ง","1+2 นอน","4 ช่อง","3 ตั้ง"][i];
+    b.onclick=()=>{col.layout=i;setLayoutCells();[...lw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};lw.appendChild(b);});
+  // ratios
+  const rw=$("#colRatios");[["1:1",1],["4:5",4/5],["3:4",3/4],["9:16",9/16]].forEach(([l,r])=>{const b=document.createElement("button");b.className="chip"+(col.ratio===r?" active":"");b.textContent=l;b.onclick=()=>{col.ratio=r;[...rw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};rw.appendChild(b);});
+  // bg swatches
+  const bw=$("#colBg");["#ffffff","#000000","#ffd9e6","#e7e1ff","#d9f3ff","#fff3cf","#f0f0f3"].forEach(c=>{const s=document.createElement("div");s.className="sw"+(c===col.bg?" active":"");s.style.background=c;s.onclick=()=>{col.bg=c;[...bw.children].forEach(x=>x.classList.remove("active"));s.classList.add("active");drawCollage();};bw.appendChild(s);});
+  // controls
+  const gap=$("#colGap"),rad=$("#colRad"),zoom=$("#colZoom");
+  const upO=()=>{$("#colGapO").textContent=Math.round(col.gap*100);$("#colRadO").textContent=Math.round(col.radius/0.08*100);};
+  gap.oninput=()=>{col.gap=+gap.value;upO();drawCollage();};
+  rad.oninput=()=>{col.radius=+rad.value;upO();drawCollage();};
+  zoom.oninput=()=>{const cell=col.cells[col.sel];if(cell){cell.scale=+zoom.value;$("#colZoomO").textContent=Math.round(cell.scale*100);clampCell(cell);drawCollage();}};
+  upO();
+  // add image
+  $("#colAdd").onclick=()=>{colInput.value="";colInput.click();};
+  colInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{const im=new Image();im.onload=()=>{const cell=col.cells[col.sel]||col.cells[0];cell.img=im;cell.scale=1;cell.ox=0;cell.oy=0;$("#colZoom").value=1;$("#colZoomO").textContent="100";drawCollage();};im.src=rd.result;};rd.readAsDataURL(f);};
+  // canvas interaction
+  let dragging=false,ds=null;
+  cv.addEventListener("pointerdown",ev=>{const p=colPoint(ev);const i=hitCell(p);if(i>=0){col.sel=i;const z=col.cells[i].scale;$("#colZoom").value=z;$("#colZoomO").textContent=Math.round(z*100);drawCollage();}
+    dragging=true;ds=p;cv.setPointerCapture(ev.pointerId);});
+  cv.addEventListener("pointermove",ev=>{if(!dragging)return;const p=colPoint(ev);const cell=col.cells[col.sel];if(cell&&cell.img){cell.ox+=(p.x-ds.x);cell.oy+=(p.y-ds.y);clampCell(cell);drawCollage();}ds=p;});
+  cv.addEventListener("pointerup",()=>{dragging=false;});
+  $("#colClose").onclick=()=>{m.hidden=true;};
+  m.onclick=e=>{if(e.target===m)m.hidden=true;};
+  $("#colDone").onclick=async()=>{const url=renderCollage(true);m.hidden=true;await setNewImage(url,true);selectTab("filter");};
+  drawCollage();
+}
+function setLayoutCells(){const n=COL_LAYOUTS[col.layout].length;while(col.cells.length<n)col.cells.push({img:null,scale:1,ox:0,oy:0});if(col.sel>=n)col.sel=0;}
+function colDims(){const W=1080,H=Math.round(1080/col.ratio);return {W,H};}
+function colPoint(ev){const r=col.cv.getBoundingClientRect();return {x:(ev.clientX-r.left)/r.width*col.cv.width,y:(ev.clientY-r.top)/r.height*col.cv.height};}
+function hitCell(p){const {W,H}=colDims();const lo=COL_LAYOUTS[col.layout];for(let i=0;i<lo.length;i++){const[rx,ry,rw2,rh2]=lo[i];if(p.x>=rx*W&&p.x<=(rx+rw2)*W&&p.y>=ry*H&&p.y<=(ry+rh2)*H)return i;}return -1;}
+function cellRect(i){const {W,H}=colDims();const[rx,ry,rw2,rh2]=COL_LAYOUTS[col.layout][i];const g=col.gap*W/2;return {x:rx*W+g,y:ry*H+g,w:rw2*W-g*2,h:rh2*H-g*2};}
+function cellCover(cell,R){const s=Math.max(R.w/cell.img.width,R.h/cell.img.height)*cell.scale;return {dw:cell.img.width*s,dh:cell.img.height*s};}
+function clampCell(cell){if(!cell.img)return;const i=col.cells.indexOf(cell);const R=cellRect(i);const{dw,dh}=cellCover(cell,R);const mx=(dw-R.w)/2,my=(dh-R.h)/2;cell.ox=Math.max(-mx,Math.min(mx,cell.ox));cell.oy=Math.max(-my,Math.min(my,cell.oy));}
+function renderCollage(final){
+  const {W,H}=colDims();const cv=col.cv||document.createElement("canvas");cv.width=W;cv.height=H;const cx=cv.getContext("2d");
+  cx.fillStyle=col.bg;cx.fillRect(0,0,W,H);
+  const rad=col.radius*Math.min(W,H);const lo=COL_LAYOUTS[col.layout];
+  lo.forEach((r,i)=>{const R=cellRect(i);cx.save();roundRect(cx,R.x,R.y,R.w,R.h,rad);cx.clip();const cell=col.cells[i];
+    if(cell&&cell.img){const{dw,dh}=cellCover(cell,R);const dx=R.x+(R.w-dw)/2+cell.ox,dy=R.y+(R.h-dh)/2+cell.oy;cx.drawImage(cell.img,dx,dy,dw,dh);}
+    else{cx.fillStyle="#e9e9ef";cx.fillRect(R.x,R.y,R.w,R.h);if(!final){cx.fillStyle="#9aa3b2";cx.font=`${Math.min(R.w,R.h)*0.2}px sans-serif`;cx.textAlign="center";cx.textBaseline="middle";cx.fillText("＋",R.x+R.w/2,R.y+R.h/2);}}
+    cx.restore();
+    if(!final&&i===col.sel){cx.strokeStyle="#ff5c8a";cx.lineWidth=Math.max(4,W*0.006);roundRect(cx,R.x,R.y,R.w,R.h,rad);cx.stroke();}});
+  return cv.toDataURL("image/jpeg",0.92);
+}
+function drawCollage(){ renderCollage(false); }
 
 /* ---------- init ---------- */
 function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
