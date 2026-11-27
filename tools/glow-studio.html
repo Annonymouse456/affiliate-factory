@@ -1019,47 +1019,41 @@ async function aiRun(op,prompt){
 }
 function panelAI(){
   head("AI ขั้นสูง");
-  const prov=getProv(), key=getKey();
-  // provider toggle
-  const pv=document.createElement("div");pv.className="chips";
-  [["gemini","Gemini"],["openai","OpenAI"]].forEach(([k,l])=>{const c=document.createElement("button");c.className="chip"+(prov===k?" active":"");c.textContent=l;c.onclick=()=>{setProv(k);refreshPanel();};pv.appendChild(c);});
-  panel.appendChild(pv);
-  // API key (simple mode)
-  const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px;margin-top:8px";
-  kr.innerHTML=`<input class="aiInput" id="aiKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="วาง API Key (sk-... หรือ AIza...)" value="${key.replace(/"/g,"&quot;")}">`;
-  const ks=document.createElement("button");ks.className="chip";ks.textContent="💾";ks.title="บันทึกคีย์";
-  ks.onclick=()=>{ const k=$("#aiKey").value.trim(); setKey(k); const d=detectProv(k); if(d)setProv(d); aiToast(k?(d?("บันทึกแล้ว · "+(d==="openai"?"OpenAI":"Gemini")):"บันทึกคีย์แล้ว"):"ล้างคีย์แล้ว"); refreshPanel(); };
-  const kc=document.createElement("button");kc.className="chip";kc.textContent="🗑";kc.title="ลบคีย์";
-  kc.onclick=()=>{ setKey(""); const el=$("#aiKey"); if(el)el.value=""; aiToast("ลบคีย์แล้ว — วางคีย์ใหม่ได้เลย"); refreshPanel(); };
-  kr.append(ks,kc);panel.appendChild(kr);
+  const key=getKey();
+  if(!key){
+    const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px";
+    kr.innerHTML=`<input class="aiInput" id="aiKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="วาง API Key ที่นี่">`;
+    const ks=document.createElement("button");ks.className="tbtn primary";ks.textContent="บันทึก";
+    ks.onclick=()=>{ const k=$("#aiKey").value.trim(); if(!k){aiToast("วางคีย์ก่อน");return;} const d=detectProv(k); if(!d){aiToast("คีย์ไม่ถูกรูปแบบ — ต้องขึ้นต้น AIza (Gemini) หรือ sk- (OpenAI)");return;} setKey(k); setProv(d); aiToast("บันทึกแล้ว ✓ ใช้ "+(d==="openai"?"OpenAI":"Gemini")); refreshPanel(); };
+    kr.appendChild(ks);panel.appendChild(kr);
+    const n=document.createElement("p");n.className="note";n.innerHTML="วาง API Key แล้วกด <b>บันทึก</b> → ระบบรู้เองว่า Gemini (AIza…) หรือ OpenAI (sk-…) · เอาคีย์ Gemini ฟรีที่ aistudio.google.com · คีย์อยู่ในเครื่องคุณ ไม่ส่งให้ใคร";panel.appendChild(n);
+    panelAIAdvanced(); return;
+  }
+  // key saved → status card
+  const prov=detectProv(key)||getProv();
+  const st=document.createElement("div");st.style.cssText="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:10px 12px";
+  st.innerHTML=`<span style="color:var(--good);font-size:1.2rem">✓</span><div style="flex:1;min-width:0"><div style="font-size:.86rem;font-weight:700">คีย์พร้อมใช้ · ${prov==="openai"?"OpenAI":"Gemini"}</div><div style="font-size:.72rem;color:var(--muted)">ลงท้าย …${key.slice(-4)} · เก็บในเครื่องคุณ</div></div>`;
+  const ch=document.createElement("button");ch.className="chip";ch.textContent="เปลี่ยนคีย์";
+  ch.onclick=()=>{ setKey(""); aiToast("ล้างคีย์แล้ว — วางคีย์ใหม่ได้เลย"); refreshPanel(); };
+  st.appendChild(ch);panel.appendChild(st);
 
   const g=document.createElement("div");g.className="chips";g.style.marginTop="10px";
   const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
-  g.append(
-    mk("🪄 ลบพื้นหลัง","remove_bg"),
-    mk("✨ HD / เพิ่มความคมชัด","enhance"),
-    mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."),
-  );
+  g.append(mk("🪄 ลบพื้นหลัง","remove_bg"),mk("✨ HD / เพิ่มความคมชัด","enhance"),mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."));
   panel.appendChild(g);
-
   const pr=document.createElement("div");pr.style.cssText="display:flex;gap:8px;margin-top:8px";
   pr.innerHTML=`<input class="aiInput" id="aiPrompt" placeholder="สั่งแก้ด้วยข้อความ เช่น ลบแก้วกาแฟออก / เปลี่ยนพื้นหลังเป็นชายหาด">`;
   const pb=document.createElement("button");pb.className="tbtn primary";pb.textContent="ทำ";pb.onclick=()=>aiRun("edit",$("#aiPrompt").value.trim());
   pr.appendChild(pb);panel.appendChild(pr);
-
-  const n=document.createElement("p");n.className="note";
-  const curProv=detectProv(key)||prov;
-  n.innerHTML = key
-    ? `กำลังใช้: <b>${curProv==="openai"?"OpenAI":"Gemini"}</b> (ตรวจจากคีย์อัตโนมัติ) · สั่งอะไรก็ได้ด้วยข้อความ · ⚠️ ต้องเปิดบน <b>เว็บจริง</b> — ในหน้าตัวอย่าง claude.ai นี้เรียก AI ไม่ได้`
-    : `วาง API Key แล้วกด 💾 → ระบบจะรู้เองว่าเป็น Gemini (ขึ้นต้น AIza) หรือ OpenAI (ขึ้นต้น sk-) · คีย์อยู่ในเครื่องคุณ ไม่ส่งให้ใคร`;
-  panel.appendChild(n);
-
-  // advanced: worker url
-  const adv=document.createElement("details");adv.style.marginTop="10px";
-  const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="ขั้นสูง: ใช้ Cloudflare Worker แทน (ปลอดภัยกว่าสำหรับแชร์หลายคน)";adv.appendChild(sm);
+  const n=document.createElement("p");n.className="note";n.innerHTML="เลือกรูปของคุณ (ปุ่ม “รูป” บนขวา) ก่อน แล้วกดฟีเจอร์ · รอ 10–30 วิ";panel.appendChild(n);
+  panelAIAdvanced();
+}
+function panelAIAdvanced(){
+  const adv=document.createElement("details");adv.style.marginTop="12px";
+  const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="ขั้นสูง: ใช้ Cloudflare Worker แทน";adv.appendChild(sm);
   const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:8px";
   wr.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="Worker URL" value="${getWorker().replace(/"/g,"&quot;")}">`;
-  const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก URL แล้ว (จะใช้ Worker แทนคีย์ตรง)"); };
+  const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก Worker URL แล้ว"); };
   wr.appendChild(ws);adv.appendChild(wr);panel.appendChild(adv);
 }
 
