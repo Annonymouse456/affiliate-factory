@@ -102,6 +102,44 @@ public class OverlayService extends Service {
     private android.os.Messenger mapOut;
     private boolean mapBound, mapSeen, mapGaveUp;
     private float mapTopPlain, mapTopNote, mapTopSent = -1;
+
+    // how bright the display is: chosen with the sun key, and darker by itself when the head unit dims for the headlights
+    private static final float[] GLOW = {1f, 0.75f, 0.5f, 0.3f, 0.15f};
+    private TextView glowKey;
+    private View shadeD;
+    private int systemGlow = -1, systemGlowMost = -1;      // the head unit's own brightness setting, and the highest it has been seen at
+    private android.database.ContentObserver glowWatch;
+    private float glow() { return GLOW[Math.abs(prefs.getInt("glow", 0)) % GLOW.length]; }
+    /** True when the head unit has turned its own brightness well down, which is what many do when the headlights go on. */
+    private boolean unitDimmed() { return systemGlowMost > 0 && systemGlow >= 0 && systemGlow < systemGlowMost * 0.6f; }
+    private boolean nightLook() { return glow() <= 0.5f || unitDimmed(); }
+
+    private void readSystemGlow() {
+        try {
+            int now = android.provider.Settings.System.getInt(getContentResolver(), android.provider.Settings.System.SCREEN_BRIGHTNESS, -1);
+            if (now == systemGlow) return;
+            systemGlow = now;
+            if (now > systemGlowMost) systemGlowMost = now;
+            NowPlaying.get().note("ความสว่างที่จอตั้งเอง: " + now + " (สูงสุดที่เคยเห็น " + systemGlowMost + ")");
+        } catch (Throwable ignored) { }
+    }
+
+    /** Apply the chosen brightness: ask the screen itself to dim, and lay a dark veil over our own pictures for head units whose backlight does not obey. */
+    private void applyGlow() {
+        float g = glow();
+        if (glowKey != null) glowKey.setText("\u2600 " + Math.round(g * 100) + "%");
+        if (shadeD != null) shadeD.setAlpha((1f - g) * 0.5f);
+        try {
+            View shown = dashShown ? dash : stripShown ? strip : null;
+            if (shown != null) {
+                WindowManager.LayoutParams at = (WindowManager.LayoutParams) shown.getLayoutParams();
+                at.screenBrightness = g >= 1f ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : g;
+                windows.updateViewLayout(shown, at);
+            }
+        } catch (Throwable ignored) { }
+        mapKeySent = null;               // the map follows: darker veil, and its night colours when dim
+        syncMap();
+    }
     private int mapDrops;
     private String mapKeySent;
     private final java.util.concurrent.LinkedBlockingQueue<String> mapAnswers = new java.util.concurrent.LinkedBlockingQueue<String>();
@@ -204,6 +242,12 @@ public class OverlayService extends Service {
         if (code.length() != 4) { code = String.format(Locale.US, "%04d", new java.util.Random().nextInt(10000)); prefs.edit().putString("askCode", code).apply(); }
         phoneAsk = new PhoneAsk(this, code);
         phoneAsk.start();
+        readSystemGlow();
+        try {
+            glowWatch = new android.database.ContentObserver(ui) { @Override public void onChange(boolean self) { readSystemGlow(); mapKeySent = null; syncMap(); } };
+            getContentResolver().registerContentObserver(android.provider.Settings.System.getUriFor(android.provider.Settings.System.SCREEN_BRIGHTNESS), false, glowWatch);
+        } catch (Throwable ignored) { }
+        applyGlow();
         try { mapBound = bindService(new Intent(this, MapService.class), mapLink, Context.BIND_AUTO_CREATE); } catch (Throwable ignored) { }
         buildCallCard();
         calls = new CallWatch(this, new CallWatch.Listener() {
@@ -225,6 +269,7 @@ public class OverlayService extends Service {
         Assistant.get().detach(aiListener);
         if (phoneAsk != null) phoneAsk.stop();
         if (calls != null) calls.stop();
+        try { if (glowWatch != null) getContentResolver().unregisterContentObserver(glowWatch); } catch (Throwable ignored) { }
         try { if (mapBound) unbindService(mapLink); } catch (Throwable ignored) { }
         try { if (callShown) windows.removeView(callCard); } catch (Throwable ignored) { }
         NowPlaying.get().removeListener(musicChanged);
@@ -283,6 +328,7 @@ public class OverlayService extends Service {
         } catch (Throwable ignored) { }
         showPath();
         syncMap();
+        applyGlow();
     }
 
     /** The lane band belongs to the full camera picture only. */
@@ -375,7 +421,7 @@ public class OverlayService extends Service {
         dateD = text("", 3.3f, INK_DIM, false);
         dateD.setPadding(unit * 3, 0, 0, Math.round(u * 0.7f));
         when.addView(dateD);
-        place(dash, when, right + u, u * 2, W - u * 14 - right, u * 8);
+        place(dash, when, right + u, u * 2, W - u * 30 - right, u * 8);
         noteD = text("", 2.8f, INK, false);
         noteD.setMaxLines(5);
         noteD.setEllipsize(TextUtils.TruncateAt.END);
@@ -400,6 +446,16 @@ public class OverlayService extends Service {
             syncMap();
         } });
         place(dash, mapMode, W - u * 2.5f - u * 9, u * 2.5f, u * 9, u * 7);
+
+        // beside it: brightness. Each tap is one step darker, then back to full.
+        glowKey = text("", 2.8f, INK, true);
+        glowKey.setGravity(Gravity.CENTER);
+        glowKey.setBackground(round(0x24FFFFFF, u * 2));
+        glowKey.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            prefs.edit().putInt("glow", (prefs.getInt("glow", 0) + 1) % GLOW.length).apply();
+            applyGlow();
+        } });
+        place(dash, glowKey, W - u * 2.5f - u * 9 - u * 16.5f, u * 2.5f, u * 15, u * 7);
 
         // the map's place: the map itself is a separate window laid over this, so these words show only until it arrives
         mapNote = text(mapGaveUp ? "แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ" : "กำลังเปิดแผนที่…", 3.2f, INK_DIM, false);
@@ -518,7 +574,11 @@ public class OverlayService extends Service {
         optionIn(last, "เสร็จ", new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); } });
         settings.addView(last, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, unit * 8));
         settings.setVisibility(View.GONE);
-        place(dash, settings, u * 2, u * 2, column - u * 2, H - u * 4);        // tall enough for every row: it covers the dial and part of the music card while open
+        place(dash, settings, u * 2, u * 2, column - u * 2, H - u * 4);
+        shadeD = new View(this);
+        shadeD.setBackgroundColor(0xFF000000);
+        shadeD.setAlpha(0f);
+        place(dash, shadeD, 0, 0, W, H);       // not clickable, so touches pass through to what is underneath        // tall enough for every row: it covers the dial and part of the music card while open
     }
 
     /** Rebuild both layouts in the newly chosen colours, keeping whichever one is showing. */
@@ -623,13 +683,15 @@ public class OverlayService extends Service {
     private void syncMap() {
         if (mapOut == null || mapAt == null) return;
         boolean want = dashShown && !cameraMode && !hidden && settings.getVisibility() != View.VISIBLE;
-        String key = mapKey(this) + "|" + theme()[0] + "|" + prefs.getBoolean("map3d", true);
+        String key = mapKey(this) + "|" + theme()[0] + "|" + prefs.getBoolean("map3d", true) + "|" + glow() + "|" + nightLook();
         if (!key.equals(mapKeySent)) {             // traffic key or colours changed
             mapKeySent = key;
             Bundle b = new Bundle();
             b.putString("key", mapKey(this));
             b.putString("colour", String.format(Locale.US, "#%06X", theme()[0] & 0xFFFFFF));
             b.putBoolean("full", prefs.getBoolean("map3d", true));
+            b.putInt("look", nightLook() ? 2 : 0);                       // 0: by the clock, 2: night colours now
+            b.putFloat("shade", (1f - glow()) * 0.5f);
             toMap(MapService.CONFIG, b);
         }
         float top = noteD.getVisibility() == View.VISIBLE ? mapTopNote : mapTopPlain;      // the co-pilot's words sit above the map and push it down
@@ -814,7 +876,8 @@ public class OverlayService extends Service {
         noteD.setVisibility(some ? View.VISIBLE : View.GONE);
         clockD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         dateD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
-        if (mapMode != null) mapMode.setVisibility(some ? View.INVISIBLE : View.VISIBLE);      // the words need that corner
+        if (mapMode != null) mapMode.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
+        if (glowKey != null) glowKey.setVisibility(some ? View.INVISIBLE : View.VISIBLE);      // the words need that corner
         syncMap();
         noteC.setText(some ? line : "");
         noteC.setVisibility(some ? View.VISIBLE : View.GONE);
@@ -921,7 +984,7 @@ public class OverlayService extends Service {
             }
 
             int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);     // dim after dark so the display does not glare
-            float dim = hour >= 19 || hour < 6 ? 0.8f : 1f;
+            float dim = (hour >= 19 || hour < 6 ? 0.8f : 1f) * (0.5f + glow() * 0.5f);
             if (strip.getAlpha() != dim) { strip.setAlpha(dim); path.setAlpha(dim); }
             ui.postDelayed(this, 500);
         }

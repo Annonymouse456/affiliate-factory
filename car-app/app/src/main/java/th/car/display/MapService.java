@@ -54,6 +54,8 @@ public class MapService extends Service {
     private WindowManager.LayoutParams lastAt;
     private Messenger dashboard;
     private String key = "", colour = "#35c8ff";
+    private int look;                       // 0: day or night colours by the clock; 2: night colours now
+    private float shade;                    // how dark a veil to lay over the map, 0 to 0.5
     private double lat, lon;
     private float bearing = -1, kmh = -1;
     private boolean haveFix;
@@ -68,6 +70,7 @@ public class MapService extends Service {
                 else if (m.what == CONFIG) {
                     boolean keyChanged = !key.equals(b.getString("key", "")), modeChanged = want3d != b.getBoolean("full", true);
                     key = b.getString("key", ""); colour = b.getString("colour", colour); want3d = b.getBoolean("full", true);
+                    look = b.getInt("look", 0); shade = b.getFloat("shade", 0f);
                     if (modeChanged) why3d = "";              // asked again by hand: try the 3D map afresh
                     if (web != null && (modeChanged || (is3d && keyChanged))) load(); else config();
                 }
@@ -263,7 +266,7 @@ public class MapService extends Service {
 
     private void config() {
         boolean up = kept == null || kept.getBoolean("headingUp", true);
-        run("car.config(" + JSONObject.quote(key) + "," + JSONObject.quote(colour) + "," + (up ? 1 : 0) + ")");
+        run("car.config(" + JSONObject.quote(key) + "," + JSONObject.quote(colour) + "," + (up ? 1 : 0) + "," + look + "," + String.format(Locale.US, "%.2f", shade) + ")");
     }
 
     private void fix() { if (haveFix) run(String.format(Locale.US, "car.fix(%.6f,%.6f,%.1f,%.1f)", lat, lon, bearing, kmh)); }
