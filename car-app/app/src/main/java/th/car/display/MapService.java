@@ -144,7 +144,7 @@ public class MapService extends Service {
                     if (!is3d && !lite3d) return;
                     why3d = "แผนที่ 3D เปิดไม่ได้บนจอนี้ ใช้แบบ 2D แทน (" + engine() + ": " + reason + ")";
                     tell(why3d);
-                    load();
+                    MapService.this.load();
                 } });
             }
             @JavascriptInterface public void status(final String line) { ui.post(new Runnable() { @Override public void run() { tell("3D " + line); } }); }
