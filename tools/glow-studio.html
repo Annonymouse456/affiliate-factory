@@ -210,11 +210,13 @@ $("#btnRedo").onclick=()=>{ if(hpos<hist.length-1){hpos++;restore(hist[hpos]);up
 function loadImg(src){ return new Promise((res,rej)=>{ img.onload=()=>{S.natW=img.naturalWidth;S.natH=img.naturalHeight;res();}; img.onerror=rej; img.src=src; }); }
 
 /* fit canvas to stage, keep aspect */
+const DPR=Math.min(window.devicePixelRatio||1,3);
 function fitStage(){
   const maxW=stage.clientWidth-28, maxH=stage.clientHeight-28;
   const ar=S.natW/S.natH; let w=maxW,h=w/ar;
   if(h>maxH){h=maxH;w=h*ar;}
-  base.width=Math.round(w); base.height=Math.round(h);
+  // backing store at device resolution for a crisp preview; CSS size stays in layout px
+  base.width=Math.round(w*DPR); base.height=Math.round(h*DPR);
   base.style.width=w+"px"; base.style.height=h+"px";
   sizeDoodle();
 }
