@@ -68,6 +68,7 @@
   #hits div:active { opacity: .7; }
   #say { position: absolute; left: 10px; top: 10px; display: none; padding: 8px 16px; border-radius: 16px; font-size: 19px;
     background: var(--card); color: var(--ink); box-shadow: var(--shade); max-width: 80%; }
+  #dimmer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #000; opacity: 0; pointer-events: none; z-index: 5000; }
   #credit { position: absolute; left: 12px; bottom: 1px; font-size: 9px; color: var(--dim); }
   body.nav #credit { display: none; }
 </style>
@@ -89,6 +90,7 @@
   <div class="key" id="out">−</div>
 </div>
 <div id="credit"></div>
+<div id="dimmer"></div>
 
 <script>
 (function () {
@@ -107,7 +109,8 @@
   var view;                                // whichever one is drawing; the rest of this page speaks to it only through these few functions
 
   // A bright map by day and a dark one after sunset: roads stand out far better on the bright one, and the dark one does not glare at night.
-  function isDay() { var h = new Date().getHours(); return h >= 6 && h < 18; }
+  var forced = 0;                        // set by the app: 2 means night colours now (the display was dimmed, or the headlights are on)
+  function isDay() { if (forced === 2) return false; if (forced === 1) return true; var h = new Date().getHours(); return h >= 6 && h < 18; }
   var day = isDay();
   function look3() {
     return day ? { ground: '#e9ecef', way: '#1766ff', edge: '#ffffff', gone: '#8c96a6', building: '#c5ccd8' }
@@ -675,11 +678,14 @@
   window.car = {
     fix: fix, go: go, clear: function () { clear(false); },
     note: function (text) { say(text, 20); },
-    config: function (k, colour, up) {
+    config: function (k, colour, up, look, shade) {
       var changed = k !== key;
       key = k || '';
       if (colour) accent = colour;
       if (up === 0 || up === 1) headingUp = up === 1;
+      if (look === 0 || look === 1 || look === 2) forced = look;
+      if (shade >= 0) $('dimmer').style.opacity = shade;
+      if (isDay() !== day) { day = isDay(); changed = true; }
       if (changed) spare = false;
       if (changed || !view.ready) { stamp = Date.now(); view.tiles(); credit(); }
       modeLabel(); view.colour();
