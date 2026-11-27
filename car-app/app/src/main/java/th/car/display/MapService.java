@@ -38,7 +38,7 @@ import java.util.Locale;
 public class MapService extends Service {
 
     static final int PLACE = 1, CONFIG = 2, FIX = 3, GO = 4, CLEAR = 5;      // dashboard -> map
-    static final int RESULT = 10, STATUS = 11;                                 // map -> dashboard: the page's answer as JSON text; a line about how the map is doing
+    static final int RESULT = 10, STATUS = 11, SPEAK = 12;                                 // map -> dashboard: the page's answer as JSON text; a line about how the map is doing
 
     /** The full 3D map, as published. Fetched fresh each time, so changes made to it appear without a new app. */
     static final String FULL_MAP = "https://annonymouse456.github.io/affiliate-factory/map/";
@@ -149,7 +149,22 @@ public class MapService extends Service {
             }
             @JavascriptInterface public void status(final String line) { ui.post(new Runnable() { @Override public void run() { tell("3D " + line); } }); }
             @JavascriptInterface public void save(String name, String value) {
-                try { if (kept != null && "headingUp".equals(name)) kept.edit().putBoolean("headingUp", "1".equals(value)).apply(); } catch (Throwable ignored) { }
+                try {
+                    if (kept != null && "headingUp".equals(name)) kept.edit().putBoolean("headingUp", "1".equals(value)).apply();
+                    if (kept != null && "voice".equals(name)) kept.edit().putBoolean("voice", "1".equals(value)).apply();
+                } catch (Throwable ignored) { }
+            }
+            @JavascriptInterface public void speak(final String text) {          // a turn instruction to be said aloud; the dashboard's process owns the voice
+                ui.post(new Runnable() { @Override public void run() {
+                    try {
+                        if (dashboard == null) return;
+                        Message m = Message.obtain(null, SPEAK);
+                        Bundle b = new Bundle();
+                        b.putString("text", text);
+                        m.setData(b);
+                        dashboard.send(m);
+                    } catch (Throwable ignored) { }
+                } });
             }
         }, "Host");
         web.setWebViewClient(new WebViewClient() {
@@ -266,7 +281,8 @@ public class MapService extends Service {
 
     private void config() {
         boolean up = kept == null || kept.getBoolean("headingUp", true);
-        run("car.config(" + JSONObject.quote(key) + "," + JSONObject.quote(colour) + "," + (up ? 1 : 0) + "," + look + "," + String.format(Locale.US, "%.2f", shade) + ")");
+        run("car.config(" + JSONObject.quote(key) + "," + JSONObject.quote(colour) + "," + (up ? 1 : 0) + "," + look + "," + String.format(Locale.US, "%.2f", shade)
+                + "," + (kept == null || kept.getBoolean("voice", true) ? 1 : 0) + ")");
     }
 
     private void fix() { if (haveFix) run(String.format(Locale.US, "car.fix(%.6f,%.6f,%.1f,%.1f)", lat, lon, bearing, kmh)); }

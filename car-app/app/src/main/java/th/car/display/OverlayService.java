@@ -146,6 +146,7 @@ public class OverlayService extends Service {
     private final android.os.Messenger mapIn = new android.os.Messenger(new Handler(android.os.Looper.getMainLooper()) {
         @Override public void handleMessage(android.os.Message m) {
             if (m.what == MapService.RESULT) mapAnswers.offer(String.valueOf(m.getData().getString("json")));
+            else if (m.what == MapService.SPEAK) NavVoice.get().say(OverlayService.this, m.getData().getString("text"));
             else if (m.what == MapService.STATUS) {
                 String line = String.valueOf(m.getData().getString("line"));
                 NowPlaying.get().note("แผนที่: " + line);
