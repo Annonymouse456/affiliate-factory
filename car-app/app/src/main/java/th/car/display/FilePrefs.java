@@ -46,10 +46,12 @@ final class FilePrefs implements SharedPreferences {
             for (Map.Entry<String, Object> e : values.entrySet()) o.put(e.getKey(), e.getValue());
             File dir = file.getParentFile();
             if (dir != null && !dir.exists()) dir.mkdirs();
-            FileOutputStream out = new FileOutputStream(file);
+            File fresh = new File(file.getPath() + ".new");      // written beside the real file, then swapped in: a power cut mid-write cannot empty the settings
+            FileOutputStream out = new FileOutputStream(fresh);
             out.write(o.toString().getBytes("UTF-8"));
             out.getFD().sync();
             out.close();
+            if (!fresh.renameTo(file)) { file.delete(); if (!fresh.renameTo(file)) return false; }
             return true;
         } catch (Throwable e) { return false; }
     }

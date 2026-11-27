@@ -98,7 +98,7 @@ public class OverlayService extends Service {
     private PhoneAsk phoneAsk;
     // the map panel lives in its own process; see MapService
     private RectF mapAt;
-    private TextView mapNote, mapMode;
+    private TextView mapNote;
     private android.os.Messenger mapOut;
     private boolean mapBound, mapSeen, mapGaveUp;
     private float mapTopPlain, mapTopNote, mapTopSent = -1;
@@ -141,6 +141,7 @@ public class OverlayService extends Service {
         syncMap();
     }
     private int mapDrops;
+    private long mapDroppedAt;
     private String mapKeySent;
     private final java.util.concurrent.LinkedBlockingQueue<String> mapAnswers = new java.util.concurrent.LinkedBlockingQueue<String>();
     private final android.os.Messenger mapIn = new android.os.Messenger(new Handler(android.os.Looper.getMainLooper()) {
@@ -151,8 +152,7 @@ public class OverlayService extends Service {
                 String line = String.valueOf(m.getData().getString("line"));
                 NowPlaying.get().note("แผนที่: " + line);
                 if (line.contains("tomtom tiles")) { note("แผนที่ TomTom ไม่ตอบ (อาจใช้เกินโควตาของวันนี้) ใช้แผนที่ฟรีแทนชั่วคราว จะไม่มีสีจราจร"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 20000); }
-                else if (line.contains("แทน")) { note(line); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 25000); }      // the 3D map could not be used: say why on the screen, for a while
-                else if (line.contains("eased")) { note(line.contains("tilt") ? "แผนที่ 3D ยังวาดช้า ลดมุมเอียงให้แล้ว ถ้ายังหน่วง แตะปุ่ม 3D มุมขวาบนเพื่อสลับเป็น 2D" : "แผนที่ 3D วาดช้า ปิดตึก 3D ให้แล้ว"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 15000); }
+                else if (line.contains("เปิดไม่ได้")) note(line);
             }
         }
     });
@@ -167,6 +167,8 @@ public class OverlayService extends Service {
         }
         @Override public void onServiceDisconnected(android.content.ComponentName name) {      // the web engine failed and took the map's process with it
             mapOut = null;
+            if (SystemClock.elapsedRealtime() - mapDroppedAt > 10 * 60 * 1000) mapDrops = 0;      // an occasional failure over a long drive is not a reason to give up
+            mapDroppedAt = SystemClock.elapsedRealtime();
             NowPlaying.get().note("แผนที่: ส่วนแสดงเว็บของจอหยุดทำงาน ครั้งที่ " + (++mapDrops));
             if (mapDrops >= 3) {             // stop trying: leave the space with a plain explanation
                 mapGaveUp = true;
@@ -422,7 +424,7 @@ public class OverlayService extends Service {
         dateD = text("", 3.3f, INK_DIM, false);
         dateD.setPadding(unit * 3, 0, 0, Math.round(u * 0.7f));
         when.addView(dateD);
-        place(dash, when, right + u, u * 2, W - u * 30 - right, u * 8);
+        place(dash, when, right + u, u * 2, W - u * 20 - right, u * 8);
         noteD = text("", 2.8f, INK, false);
         noteD.setMaxLines(5);
         noteD.setEllipsize(TextUtils.TruncateAt.END);
@@ -435,20 +437,7 @@ public class OverlayService extends Service {
         noteD.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { note(null); } });
         place(dash, noteD, right, u * 2, W - u * 2.5f - right, mapTopNote - u * 3.5f);
 
-        // top right corner: switch between the full 3D map and the light flat one
-        mapMode = text(prefs.getBoolean("map3d", true) ? "3D" : "2D", 3f, INK, true);
-        mapMode.setGravity(Gravity.CENTER);
-        mapMode.setBackground(round(0x24FFFFFF, u * 2));
-        mapMode.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
-            boolean full = !prefs.getBoolean("map3d", true);
-            prefs.edit().putBoolean("map3d", full).apply();
-            mapMode.setText(full ? "3D" : "2D");
-            note(full ? "แผนที่ 3D ตัวเต็ม กำลังเปิด…" : "แผนที่ 2D แบบเบา");
-            syncMap();
-        } });
-        place(dash, mapMode, W - u * 2.5f - u * 9, u * 2.5f, u * 9, u * 7);
-
-        // beside it: brightness. Each tap is one step darker, then back to full.
+        // top right corner: brightness. Each tap is one step darker, then back to full.
         glowKey = text("", 2.8f, INK, true);
         glowKey.setGravity(Gravity.CENTER);
         glowKey.setBackground(round(0x24FFFFFF, u * 2));
@@ -456,7 +445,7 @@ public class OverlayService extends Service {
             prefs.edit().putInt("glow", (prefs.getInt("glow", 0) + 1) % GLOW.length).apply();
             applyGlow();
         } });
-        place(dash, glowKey, W - u * 2.5f - u * 9 - u * 16.5f, u * 2.5f, u * 15, u * 7);
+        place(dash, glowKey, W - u * 2.5f - u * 15, u * 2.5f, u * 15, u * 7);
 
         // the map's place: the map itself is a separate window laid over this, so these words show only until it arrives
         mapNote = text(mapGaveUp ? "แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ" : "กำลังเปิดแผนที่…", 3.2f, INK_DIM, false);
@@ -684,13 +673,12 @@ public class OverlayService extends Service {
     private void syncMap() {
         if (mapOut == null || mapAt == null) return;
         boolean want = dashShown && !cameraMode && !hidden && settings.getVisibility() != View.VISIBLE;
-        String key = mapKey(this) + "|" + theme()[0] + "|" + prefs.getBoolean("map3d", true) + "|" + glow() + "|" + nightLook();
+        String key = mapKey(this) + "|" + theme()[0] + "|" + glow() + "|" + nightLook();
         if (!key.equals(mapKeySent)) {             // traffic key or colours changed
             mapKeySent = key;
             Bundle b = new Bundle();
             b.putString("key", mapKey(this));
             b.putString("colour", String.format(Locale.US, "#%06X", theme()[0] & 0xFFFFFF));
-            b.putBoolean("full", prefs.getBoolean("map3d", true));
             b.putInt("look", nightLook() ? 2 : 0);                       // 0: by the clock, 2: night colours now
             b.putFloat("shade", (1f - glow()) * 0.5f);
             toMap(MapService.CONFIG, b);
@@ -780,7 +768,7 @@ public class OverlayService extends Service {
             return;
         }
         ringing = state == CallWatch.INCOMING || state == CallWatch.WAITING;
-        if (ringing) Assistant.get().quiet();                     // never talk over a ringing phone
+        if (ringing || !callShown) Assistant.get().quiet();      // never talk over a call: one coming in, one being made, or one answered on the phone
         if (state == CallWatch.ACTIVE && callStarted == 0) callStarted = SystemClock.elapsedRealtime();
         if (state != CallWatch.ACTIVE) callStarted = 0;
         callWho.setText(name != null && !name.isEmpty() ? name : number == null || number.isEmpty() ? "ไม่ทราบเบอร์" : number);
@@ -877,7 +865,6 @@ public class OverlayService extends Service {
         noteD.setVisibility(some ? View.VISIBLE : View.GONE);
         clockD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         dateD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
-        if (mapMode != null) mapMode.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         if (glowKey != null) glowKey.setVisibility(some ? View.INVISIBLE : View.VISIBLE);      // the words need that corner
         syncMap();
         noteC.setText(some ? line : "");

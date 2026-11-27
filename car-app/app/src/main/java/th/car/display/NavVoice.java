@@ -42,9 +42,12 @@ final class NavVoice {
     }
 
     /** Stop at once: the driver has started talking to the co-pilot, or a call has come in. */
-    void quiet() {
+    boolean quiet() {
         waiting = null;
+        boolean owed = hadMusic && player != null;
         finish(false);
+        if (owed) hadMusic = false;
+        return owed;                     // true: music was paused for the instruction and has not been started again
     }
 
     private boolean busy() { return CallWatch.inCall || Assistant.get().state() != Assistant.State.IDLE; }
@@ -72,7 +75,7 @@ final class NavVoice {
     private void play(final byte[] mp3) throws Exception {
         finish(false);
         AudioManager audio = (AudioManager) app.getSystemService(Context.AUDIO_SERVICE);
-        hadMusic = Boolean.TRUE.equals(NowPlaying.get().playing);
+        if (!hadMusic) hadMusic = Boolean.TRUE.equals(NowPlaying.get().playing);      // keep it across instructions that follow closely: by the second, the music already reads as paused
         audio.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
         final MediaPlayer p = new MediaPlayer();
         player = p;
@@ -110,7 +113,7 @@ final class NavVoice {
         try { p.release(); } catch (Throwable ignored) { }
         try { ((AudioManager) app.getSystemService(Context.AUDIO_SERVICE)).abandonAudioFocus(null); } catch (Throwable ignored) { }
         if (musicBack && hadMusic) {         // this head unit pauses the phone's music for any other sound and does not start it again by itself
-            ui.postDelayed(new Runnable() { @Override public void run() { if (player == null && !busy()) NowPlaying.get().resume(); } }, 1200);
+            ui.postDelayed(new Runnable() { @Override public void run() { if (player == null && waiting == null && hadMusic && !busy()) { hadMusic = false; NowPlaying.get().resume(); } } }, 1500);
         }
     }
 }

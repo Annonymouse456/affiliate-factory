@@ -31,6 +31,6 @@ public class EqView extends View {
             bar.set(i * slot + slot * 0.2f, h * (1 - level), i * slot + slot * 0.8f, h);
             c.drawRoundRect(bar, slot * 0.3f, slot * 0.3f, paint);
         }
-        if (playing) postInvalidateDelayed(80);
+        if (playing) postInvalidateDelayed(120);
     }
 }

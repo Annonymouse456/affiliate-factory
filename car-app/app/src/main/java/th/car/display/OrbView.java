@@ -85,6 +85,6 @@ public class OrbView extends View {
         star(cx - r * 0.08f, cy + r * 0.06f, r * 0.5f);
         star(cx + r * 0.36f, cy - r * 0.36f, r * 0.19f);
         c.drawPath(spark, ink);
-        postInvalidateDelayed(state == IDLE ? 110 : 33);
+        postInvalidateDelayed(state == IDLE ? 250 : 40);
     }
 }
