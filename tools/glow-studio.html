@@ -935,11 +935,41 @@ function panelWatermark(){
   const n=document.createElement("p");n.className="note";n.textContent="เพิ่มแล้วลาก/ย่อ-ขยายได้ · จับมุมชมพูเพื่อปรับขนาด · เหมาะกับติดแบรนด์งาน affiliate";panel.appendChild(n);
 }
 
-/* ========== AI (Cloudflare Worker proxy) ========== */
-const AI_KEY="glow.ai.worker";
+/* ========== AI (direct key OR Cloudflare Worker proxy) ========== */
+const AI_KEY="glow.ai.worker", KEY_K="glow.ai.key", PROV_K="glow.ai.prov";
+const GEMINI_MODEL="gemini-2.5-flash-image", OPENAI_MODEL="gpt-image-1";
 let aiBusy=false;
+const PROMPTS={
+  remove_bg:"Remove the background completely and replace it with solid white. Keep the main foreground subject intact with clean, accurate edges.",
+  enhance:"Enhance this photo to high quality: increase sharpness and real detail, denoise, improve lighting and color, keep it natural and photorealistic. Do not change the content, identity, or composition.",
+};
 function getWorker(){ try{return localStorage.getItem(AI_KEY)||"";}catch(_){return "";} }
 function setWorker(u){ try{localStorage.setItem(AI_KEY,u);}catch(_){} }
+function getKey(){ try{return localStorage.getItem(KEY_K)||"";}catch(_){return "";} }
+function setKey(k){ try{localStorage.setItem(KEY_K,k);}catch(_){} }
+function getProv(){ try{return localStorage.getItem(PROV_K)||"gemini";}catch(_){return "gemini";} }
+function setProv(p){ try{localStorage.setItem(PROV_K,p);}catch(_){} }
+function splitDataURL(d){ const m=/^data:([^;]+);base64,(.*)$/s.exec(d); return m?{mime:m[1],b64:m[2]}:{mime:"image/png",b64:d}; }
+function b64ToBlob(b64,mime){ const bin=atob(b64),a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return new Blob([a],{type:mime||"image/png"}); }
+async function callDirect(op,image,prompt){
+  return getProv()==="openai" ? openaiDirect(getKey(),image,prompt) : geminiDirect(getKey(),image,prompt);
+}
+async function geminiDirect(key,image,prompt){
+  const img=splitDataURL(image);
+  const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:img.mime,data:img.b64}}]}]})});
+  const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data?.error?.message||("Gemini HTTP "+r.status));
+  const parts=data?.candidates?.[0]?.content?.parts||[]; const ip=parts.find(p=>p.inline_data||p.inlineData); const inl=ip&&(ip.inline_data||ip.inlineData);
+  if(!inl)throw new Error("ไม่มีรูปกลับมา (อาจต้องเปลี่ยนชื่อโมเดล/โควตาหมด)");
+  return `data:${inl.mime_type||inl.mimeType||"image/png"};base64,${inl.data}`;
+}
+async function openaiDirect(key,image,prompt){
+  const img=splitDataURL(image); const form=new FormData();
+  form.append("model",OPENAI_MODEL); form.append("prompt",prompt); form.append("image",b64ToBlob(img.b64,img.mime),"image.png");
+  const r=await fetch("https://api.openai.com/v1/images/edits",{method:"POST",headers:{Authorization:"Bearer "+key},body:form});
+  const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data?.error?.message||("OpenAI HTTP "+r.status));
+  const b64=data?.data?.[0]?.b64_json; if(!b64)throw new Error("ไม่มีรูปกลับมา"); return "data:image/png;base64,"+b64;
+}
 function aiOverlay(on,msg){ const b=$("#aiBusy"); if(msg)$("#aiBusyMsg").textContent=msg; b.hidden=!on; }
 let toastT=null;
 function aiToast(msg){ let t=$("#aiToast"); if(!t){t=document.createElement("div");t.id="aiToast";document.body.appendChild(t);} t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true;},3200); }
@@ -949,29 +979,43 @@ function aiImage(max){ const ar=S.natW/S.natH; let w=S.natW,h=S.natH;
   return c.toDataURL("image/jpeg",0.92); }
 async function applyAI(src){ S.baseSrc=src; await loadImg(src); fitStage(); dctx.clearRect(0,0,dood.width,dood.height); render(); repositionAll(); snapshot(); }
 async function aiRun(op,prompt){
-  const url=getWorker(); if(!url){ aiToast("ใส่ Worker URL ก่อน แล้วกดบันทึก"); return; }
+  const url=getWorker(), key=getKey();
+  if(!url && !key){ aiToast("วาง API Key ของคุณก่อน แล้วกด 💾"); return; }
   if(op==="edit" && !prompt){ aiToast("พิมพ์คำสั่งก่อน เช่น “ลบคนข้างหลังออก”"); return; }
   if(aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังประมวลผล AI… (ปกติ 10–30 วินาที)");
   try{
-    const payload={op,image:aiImage(1280)}; if(prompt)payload.prompt=prompt;
-    const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
-    const data=await r.json().catch(()=>({error:"อ่านผลลัพธ์ไม่ได้ (ตรวจ URL / CORS)"}));
-    if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
-    if(!data.image) throw new Error("ไม่มีรูปกลับมา");
-    await applyAI(data.image); aiToast("เสร็จ ✓ (แต่งต่อด้วยเครื่องมืออื่นได้เลย)");
+    const image=aiImage(1280);
+    let fp=prompt; if(!fp && PROMPTS[op]) fp=PROMPTS[op]; if(!fp) fp="Edit this image as requested.";
+    let result;
+    if(url){
+      const payload={op,image}; if(prompt)payload.prompt=prompt;
+      const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      const data=await r.json().catch(()=>({error:"อ่านผลลัพธ์ไม่ได้ (ตรวจ URL/CORS)"}));
+      if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
+      result=data.image;
+    } else {
+      result=await callDirect(op,image,fp);
+    }
+    if(!result) throw new Error("ไม่มีรูปกลับมา");
+    await applyAI(result); aiToast("เสร็จ ✓ (แต่งต่อด้วยเครื่องมืออื่นได้เลย)");
   }catch(e){ aiToast("ผิดพลาด: "+(e.message||e)); }
   finally{ aiBusy=false; aiOverlay(false); }
 }
 function panelAI(){
   head("AI ขั้นสูง");
-  const url=getWorker();
-  const cfg=document.createElement("div");cfg.style.cssText="display:flex;gap:8px;margin-bottom:8px";
-  cfg.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="วาง Worker URL เช่น https://glow-ai.xxx.workers.dev" value="${url.replace(/"/g,'&quot;')}">`;
-  const save=document.createElement("button");save.className="chip";save.textContent="💾";save.title="บันทึก URL";
-  save.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก URL แล้ว"); refreshPanel(); };
-  cfg.appendChild(save);panel.appendChild(cfg);
+  const prov=getProv(), key=getKey();
+  // provider toggle
+  const pv=document.createElement("div");pv.className="chips";
+  [["gemini","Gemini"],["openai","OpenAI"]].forEach(([k,l])=>{const c=document.createElement("button");c.className="chip"+(prov===k?" active":"");c.textContent=l;c.onclick=()=>{setProv(k);refreshPanel();};pv.appendChild(c);});
+  panel.appendChild(pv);
+  // API key (simple mode)
+  const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  kr.innerHTML=`<input class="aiInput" id="aiKey" type="password" autocomplete="off" placeholder="วาง ${prov==="openai"?"OpenAI":"Gemini"} API Key ที่นี่" value="${key.replace(/"/g,"&quot;")}">`;
+  const ks=document.createElement("button");ks.className="chip";ks.textContent=key?"✓ 💾":"💾";ks.title="บันทึกคีย์";
+  ks.onclick=()=>{ setKey($("#aiKey").value.trim()); aiToast("บันทึกคีย์แล้ว (เก็บในเครื่องคุณเท่านั้น)"); refreshPanel(); };
+  kr.appendChild(ks);panel.appendChild(kr);
 
-  const g=document.createElement("div");g.className="chips";
+  const g=document.createElement("div");g.className="chips";g.style.marginTop="10px";
   const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
   g.append(
     mk("🪄 ลบพื้นหลัง","remove_bg"),
@@ -986,10 +1030,18 @@ function panelAI(){
   pr.appendChild(pb);panel.appendChild(pr);
 
   const n=document.createElement("p");n.className="note";
-  n.innerHTML = url
-    ? "สั่งอะไรก็ได้ด้วยข้อความ (ลบวัตถุ/เปลี่ยนพื้นหลัง/เปลี่ยนสไตล์) · ทำงานบนเว็บจริงที่ตั้ง Worker — ในหน้าตัวอย่างนี้เรียก AI ไม่ได้ (ถูกบล็อก)"
-    : "ยังไม่ได้ตั้งค่า → deploy โฟลเดอร์ <b>tools/glow-ai-worker</b> ขึ้น Cloudflare แล้ววาง URL ที่ได้ตรงนี้ (คู่มือใน README)";
+  n.innerHTML = key
+    ? "คีย์เก็บในเครื่องคุณเท่านั้น · สั่งอะไรก็ได้ด้วยข้อความ · ⚠️ ต้องเปิดแอปบน <b>เว็บจริง</b> (เช่น GitHub Pages) — ในหน้าตัวอย่าง claude.ai นี้เรียก AI ไม่ได้ (ถูกบล็อก)"
+    : `วาง API Key แล้วกด 💾 → ใช้ได้เลย (คีย์อยู่ในเครื่องคุณ ไม่ถูกส่งให้ใคร) · เอาคีย์ Gemini ฟรีได้ที่ aistudio.google.com`;
   panel.appendChild(n);
+
+  // advanced: worker url
+  const adv=document.createElement("details");adv.style.marginTop="10px";
+  const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="ขั้นสูง: ใช้ Cloudflare Worker แทน (ปลอดภัยกว่าสำหรับแชร์หลายคน)";adv.appendChild(sm);
+  const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  wr.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="Worker URL" value="${getWorker().replace(/"/g,"&quot;")}">`;
+  const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก URL แล้ว (จะใช้ Worker แทนคีย์ตรง)"); };
+  wr.appendChild(ws);adv.appendChild(wr);panel.appendChild(adv);
 }
 
 /* ========== FULLSCREEN ========== */
