@@ -94,6 +94,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8}
 .tab.active{color:var(--accent)}
 
+/* ai busy + toast */
+#aiBusy{position:fixed;inset:0;background:rgba(0,0,0,.62);display:grid;place-items:center;z-index:60;color:#fff;text-align:center}
+#aiBusy .sp{width:46px;height:46px;border:4px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#aiToast{position:fixed;left:50%;bottom:calc(var(--tab-h) + env(safe-area-inset-bottom,0px) + 16px);transform:translateX(-50%);background:var(--surface2);border:1px solid var(--line);color:var(--fg);padding:10px 16px;border-radius:999px;z-index:70;font-size:.82rem;max-width:88%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.aiInput{flex:1;background:var(--surface2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:9px;font-size:.82rem;font-family:var(--fontUI);min-width:0}
 /* save modal */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;z-index:50;padding:16px}
 .modal .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px;max-width:420px;width:100%;max-height:88vh;overflow:auto}
@@ -139,6 +145,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 
 <input id="file" type="file" accept="image/*" hidden>
 <div id="saveModal" class="modal" hidden></div>
+<div id="aiBusy" hidden><div><div class="sp"></div><span id="aiBusyMsg">กำลังประมวลผล…</span></div></div>
 
 <script>
 "use strict";
@@ -359,6 +366,7 @@ const TABS=[
   ["frame","กรอบ",'<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/>'],
   ["doodle","วาด",'<path d="M3 21l3-1 11-11-2-2L4 18l-1 3zM14 5l3 3"/>'],
   ["watermark","ลายน้ำ",'<path d="M12 3c3 4 5 6.5 5 9a5 5 0 01-10 0c0-2.5 2-5 5-9z"/>'],
+  ["ai","AI",'<path d="M12 3l1.7 4L18 8.7l-4.3 1.6L12 15l-1.7-4.7L6 8.7 10.3 7z"/><circle cx="5.5" cy="17.5" r="1.3"/><circle cx="18.5" cy="17.5" r="1.3"/>'],
   ["collage","คอลลาจ",'<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/>']
 ];
 function buildTabs(){
@@ -399,6 +407,7 @@ function refreshPanel(){
   else if(k==="doodle")panelDoodle();
   else if(k==="retouch")panelRetouch();
   else if(k==="watermark")panelWatermark();
+  else if(k==="ai")panelAI();
 }
 function head(title,resetFn){
   const h=document.createElement("div");h.className="panelHead";
@@ -922,6 +931,63 @@ function panelWatermark(){
     panel.appendChild(op);
   }
   const n=document.createElement("p");n.className="note";n.textContent="เพิ่มแล้วลาก/ย่อ-ขยายได้ · จับมุมชมพูเพื่อปรับขนาด · เหมาะกับติดแบรนด์งาน affiliate";panel.appendChild(n);
+}
+
+/* ========== AI (Cloudflare Worker proxy) ========== */
+const AI_KEY="glow.ai.worker";
+let aiBusy=false;
+function getWorker(){ try{return localStorage.getItem(AI_KEY)||"";}catch(_){return "";} }
+function setWorker(u){ try{localStorage.setItem(AI_KEY,u);}catch(_){} }
+function aiOverlay(on,msg){ const b=$("#aiBusy"); if(msg)$("#aiBusyMsg").textContent=msg; b.hidden=!on; }
+let toastT=null;
+function aiToast(msg){ let t=$("#aiToast"); if(!t){t=document.createElement("div");t.id="aiToast";document.body.appendChild(t);} t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>{t.hidden=true;},3200); }
+function aiImage(max){ const ar=S.natW/S.natH; let w=S.natW,h=S.natH;
+  if(Math.max(w,h)>max){ if(w>=h){w=max;h=Math.round(max/ar);} else {h=max;w=Math.round(max*ar);} }
+  const c=document.createElement("canvas");c.width=w;c.height=h;c.getContext("2d").drawImage(img,0,0,w,h);
+  return c.toDataURL("image/jpeg",0.92); }
+async function applyAI(src){ S.baseSrc=src; await loadImg(src); fitStage(); dctx.clearRect(0,0,dood.width,dood.height); render(); repositionAll(); snapshot(); }
+async function aiRun(op,prompt){
+  const url=getWorker(); if(!url){ aiToast("ใส่ Worker URL ก่อน แล้วกดบันทึก"); return; }
+  if(op==="edit" && !prompt){ aiToast("พิมพ์คำสั่งก่อน เช่น “ลบคนข้างหลังออก”"); return; }
+  if(aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังประมวลผล AI… (ปกติ 10–30 วินาที)");
+  try{
+    const payload={op,image:aiImage(1280)}; if(prompt)payload.prompt=prompt;
+    const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const data=await r.json().catch(()=>({error:"อ่านผลลัพธ์ไม่ได้ (ตรวจ URL / CORS)"}));
+    if(!r.ok||data.error) throw new Error(data.error||("HTTP "+r.status));
+    if(!data.image) throw new Error("ไม่มีรูปกลับมา");
+    await applyAI(data.image); aiToast("เสร็จ ✓ (แต่งต่อด้วยเครื่องมืออื่นได้เลย)");
+  }catch(e){ aiToast("ผิดพลาด: "+(e.message||e)); }
+  finally{ aiBusy=false; aiOverlay(false); }
+}
+function panelAI(){
+  head("AI ขั้นสูง");
+  const url=getWorker();
+  const cfg=document.createElement("div");cfg.style.cssText="display:flex;gap:8px;margin-bottom:8px";
+  cfg.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="วาง Worker URL เช่น https://glow-ai.xxx.workers.dev" value="${url.replace(/"/g,'&quot;')}">`;
+  const save=document.createElement("button");save.className="chip";save.textContent="💾";save.title="บันทึก URL";
+  save.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก URL แล้ว"); refreshPanel(); };
+  cfg.appendChild(save);panel.appendChild(cfg);
+
+  const g=document.createElement("div");g.className="chips";
+  const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
+  g.append(
+    mk("🪄 ลบพื้นหลัง","remove_bg"),
+    mk("✨ HD / เพิ่มความคมชัด","enhance"),
+    mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."),
+  );
+  panel.appendChild(g);
+
+  const pr=document.createElement("div");pr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  pr.innerHTML=`<input class="aiInput" id="aiPrompt" placeholder="สั่งแก้ด้วยข้อความ เช่น ลบแก้วกาแฟออก / เปลี่ยนพื้นหลังเป็นชายหาด">`;
+  const pb=document.createElement("button");pb.className="tbtn primary";pb.textContent="ทำ";pb.onclick=()=>aiRun("edit",$("#aiPrompt").value.trim());
+  pr.appendChild(pb);panel.appendChild(pr);
+
+  const n=document.createElement("p");n.className="note";
+  n.innerHTML = url
+    ? "สั่งอะไรก็ได้ด้วยข้อความ (ลบวัตถุ/เปลี่ยนพื้นหลัง/เปลี่ยนสไตล์) · ทำงานบนเว็บจริงที่ตั้ง Worker — ในหน้าตัวอย่างนี้เรียก AI ไม่ได้ (ถูกบล็อก)"
+    : "ยังไม่ได้ตั้งค่า → deploy โฟลเดอร์ <b>tools/glow-ai-worker</b> ขึ้น Cloudflare แล้ววาง URL ที่ได้ตรงนี้ (คู่มือใน README)";
+  panel.appendChild(n);
 }
 
 /* ---------- init ---------- */

@@ -1,0 +1,18 @@
+name = "glow-ai"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# ── Non-secret config (edit as needed) ─────────────────────────
+[vars]
+# Which provider to call: "gemini" or "openai".
+PROVIDER = "gemini"
+# Image model name. Google/OpenAI change these — update if calls fail.
+GEMINI_MODEL = "gemini-2.5-flash-image"
+OPENAI_MODEL = "gpt-image-1"
+# Restrict who can call this Worker. Use your site origin in production,
+# e.g. "https://annonymouse456.github.io". "*" allows any origin (easy for testing).
+ALLOW_ORIGIN = "*"
+
+# ── Secrets (DO NOT put keys here) ─────────────────────────────
+# Set them with:  wrangler secret put GEMINI_API_KEY
+#                 wrangler secret put OPENAI_API_KEY
