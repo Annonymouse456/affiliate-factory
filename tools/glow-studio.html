@@ -19,12 +19,13 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 /* top bar */
 #topbar{display:flex;align-items:center;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px)) 10px max(12px,env(safe-area-inset-right,0px));
   padding-top:calc(10px + env(safe-area-inset-top,0px));background:var(--surface);border-bottom:1px solid var(--line);flex:0 0 auto}
-.brand{font-family:var(--fontBrand);font-weight:700;font-size:1.05rem;letter-spacing:.2px;margin:0 auto 0 4px}
+.brand{font-family:var(--fontBrand);font-weight:700;font-size:1.02rem;letter-spacing:.2px;margin:0 auto 0 4px;white-space:nowrap}
+@media (max-width:430px){.brand{font-size:.9rem}}
 .brand span{color:var(--accent)}
 #topbar button{font-family:var(--fontUI)}
 .iconbtn{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-size:1.1rem;cursor:pointer;display:grid;place-items:center}
 .iconbtn:disabled{opacity:.35;cursor:default}
-.tbtn{height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-weight:600;font-size:.85rem;cursor:pointer}
+.tbtn{height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-weight:600;font-size:.85rem;cursor:pointer;white-space:nowrap}
 .tbtn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
 
 /* stage */
@@ -112,6 +113,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <button class="iconbtn" id="btnUndo" title="ย้อนกลับ" disabled>&#8630;</button>
     <button class="iconbtn" id="btnRedo" title="ทำซ้ำ" disabled>&#8631;</button>
     <div class="brand">Glow <span>Studio</span></div>
+    <button class="iconbtn" id="btnAuto" title="ปรับออโต้ (Auto)">✨</button>
     <button class="tbtn" id="btnImport">รูป</button>
     <button class="tbtn primary" id="btnSave">บันทึก</button>
   </header>
@@ -183,7 +185,7 @@ let hist=[], hpos=-1;
 function snapshot(){
   const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,frame:S.frame,
     baseSrc:S.baseSrc,natW:S.natW,natH:S.natH,
-    overlays:S.overlays.map(o=>({type:o.type,content:o.content,font:o.font,color:o.color,size:o.size,x:o.x,y:o.y,scale:o.scale,rot:o.rot})),
+    overlays:S.overlays.map(o=>({type:o.type,content:o.content,font:o.font,color:o.color,size:o.size,x:o.x,y:o.y,scale:o.scale,rot:o.rot,opacity:o.opacity})),
     doodle:dood.width?dood.toDataURL():null};
   hist=hist.slice(0,hpos+1); hist.push(st); if(hist.length>24){hist.shift();} hpos=hist.length-1;
   updHist();
@@ -285,10 +287,12 @@ function addOverlay(o,push=true){
   const el=document.createElement("div"); el.className="ov";
   const id=o.id||uid++;
   const data={id,type:o.type,content:o.content,font:o.font||"Prompt",color:o.color||"#fff",
-    size:o.size|| (o.type==="text"?42:72), x:o.x??0.5,y:o.y??0.5,scale:o.scale||1,rot:o.rot||0,el};
-  if(o.type==="text"){ el.textContent=o.content; el.style.color=data.color; el.style.fontFamily=`'${data.font}',sans-serif`;
+    size:o.size|| (o.type==="text"?42:72), x:o.x??0.5,y:o.y??0.5,scale:o.scale||1,rot:o.rot||0,opacity:o.opacity==null?1:o.opacity,el};
+  if(o.type==="image"){ const im=document.createElement("img");im.src=o.content;im.draggable=false;im.style.width=data.size+"px";im.style.height="auto";im.style.display="block";el.appendChild(im);data.imgEl=im; }
+  else if(o.type==="text"){ el.textContent=o.content; el.style.color=data.color; el.style.fontFamily=`'${data.font}',sans-serif`;
     el.style.fontSize=data.size+"px"; el.style.fontWeight="600"; el.style.textShadow="0 2px 10px rgba(0,0,0,.35)"; }
   else { el.textContent=o.content; el.style.fontSize=data.size+"px"; }
+  el.style.opacity=data.opacity;
   const h=document.createElement("div");h.className="handle";h.textContent="⤡";
   const d=document.createElement("div");d.className="del";d.textContent="×";
   el.append(h,d); overlay.appendChild(el);
@@ -354,6 +358,7 @@ const TABS=[
   ["text","ข้อความ",'<path d="M4 6V4h16v2M12 4v16M8 20h8"/>'],
   ["frame","กรอบ",'<rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="10" height="10"/>'],
   ["doodle","วาด",'<path d="M3 21l3-1 11-11-2-2L4 18l-1 3zM14 5l3 3"/>'],
+  ["watermark","ลายน้ำ",'<path d="M12 3c3 4 5 6.5 5 9a5 5 0 01-10 0c0-2.5 2-5 5-9z"/>'],
   ["collage","คอลลาจ",'<rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="8" height="8"/><rect x="13" y="13" width="8" height="8"/>']
 ];
 function buildTabs(){
@@ -367,7 +372,7 @@ function selectTab(k){
   if(k==="collage"){ openCollage(); return; }
   S.tab=k; cancelCrop(); setDoodleActive(k==="doodle"||k==="retouch"); if(k!=="sticker"&&k!=="text")clearSel();
   if(k==="retouch") enterRetouch();
-  buildTabs(); refreshPanel(); }
+  buildTabs(); refreshPanel(); onResize(); }
 
 /* ---------- panels ---------- */
 function slider(label,key,obj,min,max,step,fmt){
@@ -393,6 +398,7 @@ function refreshPanel(){
   else if(k==="frame")panelFrame();
   else if(k==="doodle")panelDoodle();
   else if(k==="retouch")panelRetouch();
+  else if(k==="watermark")panelWatermark();
 }
 function head(title,resetFn){
   const h=document.createElement("div");h.className="panelHead";
@@ -618,7 +624,9 @@ function exportCanvas(type,quality){
   const sc=W/base.clientWidth;
   S.overlays.forEach(o=>{
     cx.save(); cx.translate(px+o.x*W, py+o.y*H); cx.rotate(o.rot*Math.PI/180); cx.scale(o.scale*sc,o.scale*sc);
-    if(o.type==="text"){cx.fillStyle=o.color;cx.font=`600 ${o.size}px '${o.font}',sans-serif`;cx.textAlign="center";cx.textBaseline="middle";
+    cx.globalAlpha=o.opacity==null?1:o.opacity;
+    if(o.type==="image"&&o.imgEl){const iw=o.size,ih=o.size*(o.imgEl.naturalHeight/o.imgEl.naturalWidth||1);cx.drawImage(o.imgEl,-iw/2,-ih/2,iw,ih);}
+    else if(o.type==="text"){cx.fillStyle=o.color;cx.font=`600 ${o.size}px '${o.font}',sans-serif`;cx.textAlign="center";cx.textBaseline="middle";
       cx.shadowColor="rgba(0,0,0,.35)";cx.shadowBlur=10;cx.shadowOffsetY=2;
       o.content.split("\n").forEach((ln,i,arr)=>cx.fillText(ln,0,(i-(arr.length-1)/2)*o.size*1.15));}
     else {cx.font=`${o.size}px sans-serif`;cx.textAlign="center";cx.textBaseline="middle";cx.fillText(o.content,0,0);}
@@ -859,9 +867,67 @@ function renderCollage(final){
 }
 function drawCollage(){ renderCollage(false); }
 
+/* ========== AUTO-ENHANCE (histogram auto-levels + white balance) ========== */
+$("#btnAuto").onclick=autoEnhance;
+async function autoEnhance(){
+  if(!S.baseSrc)return; const btn=$("#btnAuto"); const old=btn.textContent; btn.textContent="…"; btn.disabled=true;
+  await new Promise(r=>setTimeout(r,20));
+  try{
+    const s=Math.min(1,480/Math.max(S.natW,S.natH));
+    const sc=document.createElement("canvas");sc.width=Math.max(1,Math.round(S.natW*s));sc.height=Math.max(1,Math.round(S.natH*s));
+    const scx=sc.getContext("2d");scx.drawImage(img,0,0,sc.width,sc.height);
+    const d=scx.getImageData(0,0,sc.width,sc.height).data;
+    const hist=[new Uint32Array(256),new Uint32Array(256),new Uint32Array(256)];
+    for(let i=0;i<d.length;i+=4){hist[0][d[i]]++;hist[1][d[i+1]]++;hist[2][d[i+2]]++;}
+    const total=sc.width*sc.height, clip=total*0.004, lo=[0,0,0], hi=[255,255,255];
+    for(let c=0;c<3;c++){let a=0;for(let v=0;v<256;v++){a+=hist[c][v];if(a>clip){lo[c]=v;break;}}a=0;for(let v=255;v>=0;v--){a+=hist[c][v];if(a>clip){hi[c]=v;break;}}if(hi[c]<=lo[c])hi[c]=Math.min(255,lo[c]+1);}
+    const lut=[new Uint8ClampedArray(256),new Uint8ClampedArray(256),new Uint8ClampedArray(256)];
+    for(let c=0;c<3;c++)for(let v=0;v<256;v++)lut[c][v]=(v-lo[c])*255/(hi[c]-lo[c]);
+    const out=document.createElement("canvas");out.width=S.natW;out.height=S.natH;const ox=out.getContext("2d");ox.drawImage(img,0,0);
+    const im=ox.getImageData(0,0,S.natW,S.natH),p=im.data;
+    for(let i=0;i<p.length;i+=4){p[i]=lut[0][p[i]];p[i+1]=lut[1][p[i+1]];p[i+2]=lut[2][p[i+2]];}
+    ox.putImageData(im,0,0);
+    // gentle saturation + warmth lift
+    S.adjust.saturation=Math.min(2,S.adjust.saturation*1.08);
+    await rebake(out);
+  }finally{ btn.textContent=old; btn.disabled=false; }
+}
+
+/* ========== WATERMARK / โลโก้ ========== */
+let wmInput=null;
+function selectedOv(){ return S.overlays.find(o=>o.el===selEl) || S.overlays[S.overlays.length-1] || null; }
+function panelWatermark(){
+  head("ลายน้ำ / โลโก้");
+  const ta=document.createElement("textarea");ta.className="ta";ta.rows=1;ta.placeholder="ชื่อแบรนด์ / ข้อความลายน้ำ…";panel.appendChild(ta);
+  const row=document.createElement("div");row.style.cssText="display:flex;gap:8px;margin-top:8px";
+  const addT=document.createElement("button");addT.className="tbtn primary";addT.style.flex="1";addT.textContent="＋ ข้อความ";
+  addT.onclick=()=>{const t=ta.value.trim()||"@brand";addOverlay({type:"text",content:t,color:"#ffffff",opacity:0.55,size:34,x:0.8,y:0.94});ta.value="";refreshPanel();};
+  const addL=document.createElement("button");addL.className="tbtn";addL.style.flex="1";addL.textContent="⤒ อัปโหลดโลโก้";
+  addL.onclick=()=>{ if(!wmInput){wmInput=document.createElement("input");wmInput.type="file";wmInput.accept="image/*";wmInput.hidden=true;document.body.appendChild(wmInput);}
+    wmInput.value="";wmInput.onchange=e=>{const f=e.target.files[0];if(!f)return;const rd=new FileReader();rd.onload=()=>{addOverlay({type:"image",content:rd.result,opacity:0.9,size:130,x:0.84,y:0.9});refreshPanel();};rd.readAsDataURL(f);};wmInput.click(); };
+  row.append(addT,addL);panel.appendChild(row);
+
+  const o=selectedOv();
+  if(o){
+    const lbl=document.createElement("div");lbl.style.cssText="font-size:.78rem;color:var(--muted);margin:12px 0 4px";lbl.textContent="ตำแหน่ง (ของชิ้นที่เลือก)";panel.appendChild(lbl);
+    const grid=document.createElement("div");grid.style.cssText="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:150px";
+    const XS=[0.12,0.5,0.88],YS=[0.12,0.5,0.9];
+    YS.forEach(y=>XS.forEach(x=>{const b=document.createElement("button");b.className="chip";b.style.cssText="padding:10px 0;text-align:center";b.textContent="•";
+      b.onclick=()=>{const t=selectedOv();if(t){t.x=x;t.y=y;positionOv(t);snapshot();}};grid.appendChild(b);}));
+    panel.appendChild(grid);
+    const op=document.createElement("div");op.className="row";op.innerHTML=`<label>ความจาง</label><input type="range" min="0.1" max="1" step="0.01" value="${o.opacity}"><output>${Math.round(o.opacity*100)}</output>`;
+    const inp=op.querySelector("input"),out=op.querySelector("output");
+    inp.addEventListener("input",()=>{const t=selectedOv();if(t){t.opacity=+inp.value;t.el.style.opacity=t.opacity;out.textContent=Math.round(t.opacity*100);}});
+    inp.addEventListener("change",snapshot);
+    panel.appendChild(op);
+  }
+  const n=document.createElement("p");n.className="note";n.textContent="เพิ่มแล้วลาก/ย่อ-ขยายได้ · จับมุมชมพูเพื่อปรับขนาด · เหมาะกับติดแบรนด์งาน affiliate";panel.appendChild(n);
+}
+
 /* ---------- init ---------- */
 function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
 window.addEventListener("resize",onResize);
+try{ new ResizeObserver(()=>onResize()).observe(stage); }catch(_){}
 (async function init(){
   buildTabs();
   await setNewImage(makeSample(),false);
