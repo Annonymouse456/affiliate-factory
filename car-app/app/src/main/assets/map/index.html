@@ -131,13 +131,36 @@
   var troubled = false, fails = 0;
   var spare = false;                     // true while the free map stands in for TomTom's
   function paid() { return key && !spare; }
+
+  // Map pictures that fail to load are not asked for again by themselves, so a map opened before the
+  // internet was connected would stay empty. After any failure, keep testing the line every few
+  // seconds; the moment a picture comes through, load the whole map afresh.
+  var mending = null;
   function tileFailed() {
-    if (++fails < 6) return;
-    if (paid()) {                          // the map with the key has stopped answering (a spent daily allowance looks like this): use the free one rather than show nothing
-      spare = true; fails = 0;
-      host.status('tomtom tiles failing, free map in use');
-      setTimeout(function () { view.tiles(); credit(); }, 0);
-    } else if (!troubled) { troubled = true; say('โหลดแผนที่ไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 0); }
+    fails++;
+    if (fails >= 6 && !troubled) { troubled = true; say('ยังโหลดแผนที่ไม่ได้ กำลังลองใหม่เรื่อย ๆ', 0); }
+    if (!mending) mending = setInterval(mend, 8000);
+  }
+  function probe(url, ok, bad) {
+    var img = new Image(), done = false;
+    var end = function (good) { if (done) return; done = true; (good ? ok : bad)(); };
+    img.onload = function () { end(true); };
+    img.onerror = function () { end(false); };
+    setTimeout(function () { end(false); }, 6000);
+    img.src = url + (url.indexOf('?') < 0 ? '?' : '&') + 'try=' + Date.now();
+  }
+  function mend() {
+    var fresh = function (useSpare) {
+      clearInterval(mending); mending = null;
+      if (useSpare && !spare) host.status('tomtom tiles failing, free map in use');
+      spare = useSpare; fails = 0;
+      if (troubled) { troubled = false; say('', 0); }
+      stamp = Date.now();
+      view.tiles(); credit();
+    };
+    var free = function () { probe('https://a.basemaps.cartocdn.com/rastertiles/voyager/5/25/14.png', function () { fresh(true); }, function () { }); };      // nothing answers: still offline, try again shortly
+    // with a key, the keyed map comes first; if only the free one answers, the key is being refused (a spent daily allowance looks like this)
+    if (key) probe(T + '/map/1/tile/basic/main/5/25/14.png?key=' + key, function () { fresh(false); }, free); else free();
   }
   function tileLoaded() { fails = 0; if (troubled) { troubled = false; say('', 0); } }
 
