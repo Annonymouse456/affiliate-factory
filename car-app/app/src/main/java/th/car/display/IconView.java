@@ -9,7 +9,7 @@ import android.view.View;
 
 /** A button face drawn in code: one simple symbol on an optional rounded or round plate. */
 public class IconView extends View {
-    static final int PLAY = 0, PAUSE = 1, NEXT = 2, PREVIOUS = 3, SPARK = 4, MENU = 5, EXPAND = 6, PANEL = 7;
+    static final int PLAY = 0, PAUSE = 1, NEXT = 2, PREVIOUS = 3, SPARK = 4, MENU = 5, EXPAND = 6, PANEL = 7, CAMERA = 8;
 
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG), plate = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path shape = new Path();
@@ -87,6 +87,16 @@ public class IconView extends View {
                 box.set(cx - r, cy - r * 0.78f, cx + r, cy + r * 0.78f);
                 c.drawRoundRect(box, r * 0.25f, r * 0.25f, ink);
                 c.drawLine(cx - r * 0.2f, cy - r * 0.78f, cx - r * 0.2f, cy + r * 0.78f, ink);
+                break;
+            }
+            case CAMERA: {                                        // a camera body with its lens
+                ink.setStyle(Paint.Style.STROKE);
+                ink.setStrokeWidth(r * 0.22f);
+                box.set(cx - r * 1.1f, cy - r * 0.6f, cx + r * 1.1f, cy + r * 0.85f);
+                c.drawRoundRect(box, r * 0.28f, r * 0.28f, ink);
+                c.drawCircle(cx, cy + r * 0.12f, r * 0.38f, ink);
+                ink.setStyle(Paint.Style.FILL);
+                c.drawRect(cx - r * 0.42f, cy - r * 0.95f, cx + r * 0.42f, cy - r * 0.6f, ink);
                 break;
             }
             default: break;

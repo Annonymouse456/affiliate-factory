@@ -93,12 +93,22 @@
   var GL = /3d/.test(location.hash);       // the tilted 3D map, asked for by the app; otherwise flat picture tiles
   var view;                                // whichever one is drawing; the rest of this page speaks to it only through these few functions
 
-  function baseUrl() { return key ? T + '/map/1/tile/basic/night/{z}/{x}/{y}.png?key=' + key + '&language=th-TH' : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'; }
+  // A bright map by day and a dark one after sunset: roads stand out far better on the bright one, and the dark one does not glare at night.
+  function isDay() { var h = new Date().getHours(); return h >= 6 && h < 18; }
+  var day = isDay();
+  function look3() {
+    return day ? { ground: '#e9ecef', way: '#1766ff', edge: '#ffffff', gone: '#8c96a6', building: '#c5ccd8' }
+               : { ground: '#0b0f17', way: '#4da6ff', edge: '#06142e', gone: '#5d6878', building: '#3a4a6b' };
+  }
+  function baseUrl() {
+    return key ? T + '/map/1/tile/basic/' + (day ? 'main' : 'night') + '/{z}/{x}/{y}.png?key=' + key + '&language=th-TH'
+               : 'https://{s}.basemaps.cartocdn.com/' + (day ? 'rastertiles/voyager' : 'dark_all') + '/{z}/{x}/{y}.png';
+  }
   function flowUrl() { return T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp; }
   function credit() { $('credit').textContent = key ? '© TomTom' : '© OpenStreetMap © CARTO'; }
   function arrowSvg() {
-    return '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="20" fill="' + accent + '" opacity=".22"/>' +
-      '<path d="M22 6l11 28-11-6-11 6z" fill="' + accent + '" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>';
+    return '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="21" fill="#0b1220" opacity=".55"/>' +
+      '<path d="M22 5l12 30-12-7-12 7z" fill="' + accent + '" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
   }
   var PIN = '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="#ff4d5e" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>';
   var troubled = false, fails = 0;
@@ -113,8 +123,9 @@
       inertia: false, doubleClickZoom: false, dragging: false }).setView([13.7563, 100.5018], 12);
     var base = L.tileLayer('', { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true, subdomains: 'abcd' });
     var flow = L.tileLayer('', { maxZoom: 19, opacity: 0.8, zIndex: 5, keepBuffer: 0, updateWhenIdle: true });
-    var line = L.polyline([], { color: accent, weight: 8, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false });
-    var done = L.polyline([], { color: '#56606e', weight: 8, opacity: 0.9, interactive: false });
+    var edge = L.polyline([], { color: look3().edge, weight: 15, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
+    var line = L.polyline([], { color: look3().way, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
+    var done = L.polyline([], { color: look3().gone, weight: 9, opacity: 1, interactive: false });
     var pin = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null, html: PIN }) });
     var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
     base.on('tileerror', tileFailed);
@@ -142,12 +153,15 @@
       tiles: function () {
         base.setUrl(baseUrl());
         if (!map.hasLayer(base)) base.addTo(map);
+        document.body.style.background = $('map').style.background = look3().ground;
+        try { var f = day ? '' : 'brightness(1.5) contrast(1.1)'; base.getContainer().style.webkitFilter = f; base.getContainer().style.filter = f; } catch (e) { }      // lift the night map: as drawn it is too dim to read in a car
+        edge.setStyle({ color: look3().edge }); line.setStyle({ color: look3().way }); done.setStyle({ color: look3().gone });
         if (key) { flow.setUrl(flowUrl()); if (!map.hasLayer(flow)) flow.addTo(map); } else if (map.hasLayer(flow)) flow.remove();
         this.ready = true;
       },
       traffic: function () { flow.setUrl(flowUrl()); },
-      colour: function () { line.setStyle({ color: accent }); var a = $('arrow'); if (a) a.innerHTML = arrowSvg(); turn(); },
-      route: function (pts) { if (pts) line.setStyle({ color: accent }).setLatLngs(pts).addTo(map); else { line.remove(); done.remove(); } },
+      colour: function () { var a = $('arrow'); if (a) a.innerHTML = arrowSvg(); turn(); },
+      route: function (pts) { if (pts) { edge.setLatLngs(pts).addTo(map); line.setLatLngs(pts).addTo(map); } else { edge.remove(); line.remove(); done.remove(); } },
       gone: function (pts) { done.setLatLngs(pts); if (!map.hasLayer(done)) done.addTo(map); },
       pin: function (ll) { if (ll) pin.setLatLng(ll).addTo(map); else pin.remove(); },
       mode: function () { map.dragging[headingUp ? 'disable' : 'enable'](); size(); turn(); },
@@ -178,7 +192,8 @@
       var urls = [], sub = key ? [''] : ['a', 'b', 'c', 'd'];
       for (var i = 0; i < sub.length; i++) urls.push(baseUrl().replace('{s}', sub[i]));
       return { version: 8, sources: { base: { type: 'raster', tiles: urls, tileSize: 256, maxzoom: 19 } },
-        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0b0f17' } }, { id: 'base', type: 'raster', source: 'base' }] };
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': look3().ground } },
+          { id: 'base', type: 'raster', source: 'base', paint: day ? {} : { 'raster-brightness-min': 0.12, 'raster-contrast': 0.25, 'raster-saturation': 0.2 } }] };
     }
     var m = new maplibregl.Map({ container: 'map', style: style(), center: [100.5018, 13.7563], zoom: 11, attributionControl: false,
       dragRotate: false, pitchWithRotate: false, fadeDuration: 0, antialias: false, renderWorldCopies: false });
@@ -191,13 +206,13 @@
     function flowLayer() {
       if (!key || m.getSource('flow')) return;
       m.addSource('flow', { type: 'raster', tiles: [flowUrl()], tileSize: 256, maxzoom: 19 });
-      m.addLayer({ id: 'flow', type: 'raster', source: 'flow', paint: { 'raster-opacity': 0.8 } }, m.getLayer('route') ? 'route' : undefined);
+      m.addLayer({ id: 'flow', type: 'raster', source: 'flow', paint: { 'raster-opacity': 0.8 } }, m.getLayer('route-edge') ? 'route-edge' : undefined);
     }
     function buildingLayer() {
       if (!buildings || m.getLayer('buildings')) return;
       if (!m.getSource('osm')) m.addSource('osm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
       m.addLayer({ id: 'buildings', type: 'fill-extrusion', source: 'osm', 'source-layer': 'building', minzoom: 14.5,
-        paint: { 'fill-extrusion-color': '#3a4a6b', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 9],
+        paint: { 'fill-extrusion-color': look3().building, 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 9],
           'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': 0.85 } });
     }
     function dress() {                     // everything laid over the base picture; put back each time the base changes
@@ -205,9 +220,10 @@
         flowLayer();
         if (!m.getSource('route')) {
           m.addSource('route', { type: 'geojson', data: geo(routePts) });
-          m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': accent, 'line-width': 8, 'line-opacity': 0.9 } });
+          m.addLayer({ id: 'route-edge', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().edge, 'line-width': 16 } });
+          m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().way, 'line-width': 10 } });
           m.addSource('done', { type: 'geojson', data: geo(donePts) });
-          m.addLayer({ id: 'done', type: 'line', source: 'done', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#56606e', 'line-width': 8 } });
+          m.addLayer({ id: 'done', type: 'line', source: 'done', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': look3().gone, 'line-width': 10 } });
         }
         buildingLayer();
       } catch (e) { }
@@ -251,7 +267,6 @@
       tiles: function () { m.setStyle(style(), { diff: false }); this.ready = true; },
       traffic: function () { try { if (m.getLayer('flow')) m.removeLayer('flow'); if (m.getSource('flow')) m.removeSource('flow'); flowLayer(); } catch (e) { } },
       colour: function () {
-        try { if (m.getLayer('route')) m.setPaintProperty('route', 'line-color', accent); } catch (e) { }
         if (carMark) carMark.getElement().innerHTML = arrowSvg();
       },
       route: function (pts) { routePts = pts || []; if (!pts) donePts = []; try { m.getSource('route').setData(geo(routePts)); if (!pts) m.getSource('done').setData(geo([])); } catch (e) { } },
@@ -281,6 +296,12 @@
   }
 
   // ---------------------------------------------------------------- shared between the two
+
+  setInterval(function () {
+    if (isDay() === day || !view.ready) return;
+    day = isDay();
+    view.tiles(); credit();
+  }, 60000);
 
   setInterval(function () {            // fresh traffic every two minutes
     if (!key || document.hidden || !view.ready) return;
@@ -493,8 +514,8 @@
   /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
   function go(query) {
     if (!here) return host.result(JSON.stringify({ ok: false, why: 'no gps' }));
-    var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(query);        // "latitude,longitude": no search needed
-    (exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
+    var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\|(.*))?$/.exec(query);        // "latitude,longitude" or "latitude,longitude|name": no search needed
+    (exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: exact[3] || 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
       ways(here, place.at, function (r) {
         start(r, place.name, place.at);
         host.save('route', query);
