@@ -4,8 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>แผนที่ในจอขับขี่</title>
-<link rel="stylesheet" href="leaflet.css">
-<script src="leaflet.js"></script>
+<script>
+  // one page, two ways of drawing: "#3d" asks for the tilted map, which needs a different library
+  document.write(/3d/.test(location.hash)
+    ? '<link rel="stylesheet" href="maplibre-gl.css"><script src="maplibre-gl.js"><\/script>'
+    : '<link rel="stylesheet" href="leaflet.css"><script src="leaflet.js"><\/script>');
+</script>
 <!--
   The map panel of the car display. A light, flat cousin of the 3D map in /map/: the same sources
   (TomTom tiles, traffic, search and routing when a key is present; OSRM and Photon otherwise), drawn
@@ -78,72 +82,210 @@
   'use strict';
   var T = 'https://api.tomtom.com';
   var $ = function (id) { return document.getElementById(id); };
-  var host = window.Host || { result: function () {}, save: function () {} };      // the app; absent when opened in a plain browser
+  var host = window.Host || { result: function () {}, save: function () {}, fail: function () {}, status: function () {} };      // the app; absent when opened in a plain browser
 
   var key = '', accent = '#35c8ff';
   var headingUp = true, follow = true, autoZoom = true;
-  var here = null, bearing = 0, kmh = 0, turned = 0;                 // turned: the map's rotation, kept continuous so it never spins the long way
+  var here = null, bearing = 0, kmh = 0;
   var route = null, at = 0, along = 0, off = 0, lastReroute = 0, stamp = Date.now();
   var freeTimer = null, sayTimer = null;
 
-  var map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, fadeAnimation: false, zoomSnap: 1,
-    inertia: false, doubleClickZoom: false, dragging: false }).setView([13.7563, 100.5018], 12);
-  var base = L.tileLayer('', { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true });
-  var flow = L.tileLayer('', { maxZoom: 19, opacity: 0.8, zIndex: 5, keepBuffer: 0, updateWhenIdle: true });
-  var line = L.polyline([], { color: accent, weight: 8, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false });
-  var done = L.polyline([], { color: '#56606e', weight: 8, opacity: 0.9, interactive: false });
-  var pin = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null,
-    html: '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="#ff4d5e" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>' }) });
-  var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
+  var GL = /3d/.test(location.hash);       // the tilted 3D map, asked for by the app; otherwise flat picture tiles
+  var view;                                // whichever one is drawing; the rest of this page speaks to it only through these few functions
 
-  var fails = 0;
-  base.on('tileerror', function () { if (++fails === 6) say('โหลดแผนที่ไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 0); });
-  base.on('tileload', function () { if (fails >= 6) say('', 0); fails = 0; });
-
-  // ---------------------------------------------------------------- drawing
-
-  function size() {            // the map is a square as wide as the panel's diagonal, so turning it never shows an empty corner
-    var w = window.innerWidth, h = window.innerHeight, s = headingUp ? Math.ceil(Math.sqrt(w * w + h * h)) + 8 : Math.max(w, h);
-    var spin = $('spin').style;
-    spin.width = s + 'px'; spin.height = s + 'px'; spin.marginLeft = -s / 2 + 'px'; spin.marginTop = -s / 2 + 'px';
-    if (!headingUp) { spin.width = w + 'px'; spin.height = h + 'px'; spin.marginLeft = -w / 2 + 'px'; spin.marginTop = -h / 2 + 'px'; }
-    map.invalidateSize(false);
-  }
-
-  function turn() {
-    var want = headingUp && follow ? -bearing : 0, d = ((want - turned) % 360 + 540) % 360 - 180;
-    turned += d;
-    var t = 'rotate(' + turned.toFixed(1) + 'deg)';
-    $('spin').style.webkitTransform = t; $('spin').style.transform = t;
-    var a = $('arrow');
-    if (a) { var r = 'rotate(' + bearing.toFixed(1) + 'deg)'; a.style.webkitTransform = r; a.style.transform = r; }
-  }
-
-  function paintArrow() {
-    var a = $('arrow');
-    if (a) a.innerHTML = '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="20" fill="' + accent + '" opacity=".22"/>' +
+  function baseUrl() { return key ? T + '/map/1/tile/basic/night/{z}/{x}/{y}.png?key=' + key + '&language=th-TH' : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'; }
+  function flowUrl() { return T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp; }
+  function credit() { $('credit').textContent = key ? '© TomTom' : '© OpenStreetMap © CARTO'; }
+  function arrowSvg() {
+    return '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="20" fill="' + accent + '" opacity=".22"/>' +
       '<path d="M22 6l11 28-11-6-11 6z" fill="' + accent + '" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>';
   }
+  var PIN = '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="#ff4d5e" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>';
+  var troubled = false, fails = 0;
+  function tileFailed() { if (++fails >= 6 && !troubled) { troubled = true; say('โหลดแผนที่ไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 0); } }
+  function tileLoaded() { fails = 0; if (troubled) { troubled = false; say('', 0); } }
 
-  function tiles() {
-    stamp = Date.now();
-    if (key) {
-      base.setUrl(T + '/map/1/tile/basic/night/{z}/{x}/{y}.png?key=' + key + '&language=th-TH');
-      flow.setUrl(T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp);
-      if (!map.hasLayer(flow)) flow.addTo(map);
-      $('credit').textContent = '© TomTom';
-    } else {
-      base.options.subdomains = 'abcd';
-      base.setUrl('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png');
-      if (map.hasLayer(flow)) flow.remove();
-      $('credit').textContent = '© OpenStreetMap © CARTO';
+  // ---------------------------------------------------------------- the flat map: picture tiles, turned as a whole to face the way the car is going
+
+  function flatView() {
+    var turned = 0;                        // the map's rotation, kept continuous so it never spins the long way
+    var map = L.map('map', { zoomControl: false, attributionControl: false, preferCanvas: true, fadeAnimation: false, zoomSnap: 1,
+      inertia: false, doubleClickZoom: false, dragging: false }).setView([13.7563, 100.5018], 12);
+    var base = L.tileLayer('', { maxZoom: 19, keepBuffer: 1, updateWhenIdle: true, subdomains: 'abcd' });
+    var flow = L.tileLayer('', { maxZoom: 19, opacity: 0.8, zIndex: 5, keepBuffer: 0, updateWhenIdle: true });
+    var line = L.polyline([], { color: accent, weight: 8, opacity: 0.9, lineCap: 'round', lineJoin: 'round', interactive: false });
+    var done = L.polyline([], { color: '#56606e', weight: 8, opacity: 0.9, interactive: false });
+    var pin = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null, html: PIN }) });
+    var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
+    base.on('tileerror', tileFailed);
+    base.on('tileload', tileLoaded);
+
+    function size() {          // the map is a square as wide as the panel's diagonal, so turning it never shows an empty corner
+      var w = window.innerWidth, h = window.innerHeight, s = Math.ceil(Math.sqrt(w * w + h * h)) + 8, spin = $('spin').style;
+      if (!headingUp) { spin.width = w + 'px'; spin.height = h + 'px'; spin.marginLeft = -w / 2 + 'px'; spin.marginTop = -h / 2 + 'px'; }
+      else { spin.width = s + 'px'; spin.height = s + 'px'; spin.marginLeft = -s / 2 + 'px'; spin.marginTop = -s / 2 + 'px'; }
+      map.invalidateSize(false);
     }
-    if (!map.hasLayer(base)) base.addTo(map);
+    function turn() {
+      var want = headingUp && follow ? -bearing : 0, d = ((want - turned) % 360 + 540) % 360 - 180;
+      turned += d;
+      var t = 'rotate(' + turned.toFixed(1) + 'deg)';
+      $('spin').style.webkitTransform = t; $('spin').style.transform = t;
+      var a = $('arrow');
+      if (a) { var r = 'rotate(' + bearing.toFixed(1) + 'deg)'; a.style.webkitTransform = r; a.style.transform = r; }
+    }
+    return {
+      ready: false,
+      centre: function () { var c = map.getCenter(); return [c.lat, c.lng]; },
+      zoom: function () { return map.getZoom(); },
+      setZoom: function (z) { map.setZoom(z); },
+      tiles: function () {
+        base.setUrl(baseUrl());
+        if (!map.hasLayer(base)) base.addTo(map);
+        if (key) { flow.setUrl(flowUrl()); if (!map.hasLayer(flow)) flow.addTo(map); } else if (map.hasLayer(flow)) flow.remove();
+        this.ready = true;
+      },
+      traffic: function () { flow.setUrl(flowUrl()); },
+      colour: function () { line.setStyle({ color: accent }); var a = $('arrow'); if (a) a.innerHTML = arrowSvg(); turn(); },
+      route: function (pts) { if (pts) line.setStyle({ color: accent }).setLatLngs(pts).addTo(map); else { line.remove(); done.remove(); } },
+      gone: function (pts) { done.setLatLngs(pts); if (!map.hasLayer(done)) done.addTo(map); },
+      pin: function (ll) { if (ll) pin.setLatLng(ll).addTo(map); else pin.remove(); },
+      mode: function () { map.dragging[headingUp ? 'disable' : 'enable'](); size(); turn(); },
+      resize: size,
+      show: function (first, z) {
+        if (first) { car.addTo(map); $('arrow').innerHTML = arrowSvg(); }
+        car.setLatLng(here);
+        if (follow) {
+          if (z == null) z = map.getZoom();
+          if (first || z !== map.getZoom()) map.setView(here, z, { animate: false });
+          else map.panTo(here, { animate: true, duration: 0.5, easeLinearity: 1 });
+        }
+        turn();
+      },
+      jump: function (z) { map.setView(here, z, { animate: false }); turn(); },
+      onDrag: function (cb) { map.on('dragstart', cb); }
+    };
   }
+
+  // ---------------------------------------------------------------- the 3D map: tilted, with buildings standing up, drawn by the graphics chip
+
+  function tiltView() {
+    if (!window.maplibregl || !maplibregl.supported()) throw new Error('no WebGL');
+    var spin = $('spin').style;
+    spin.width = '100%'; spin.height = '100%'; spin.left = '0'; spin.top = '0'; spin.transition = 'none';
+    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMark = null, lin = function (t) { return t; };
+    function style() {
+      var urls = [], sub = key ? [''] : ['a', 'b', 'c', 'd'];
+      for (var i = 0; i < sub.length; i++) urls.push(baseUrl().replace('{s}', sub[i]));
+      return { version: 8, sources: { base: { type: 'raster', tiles: urls, tileSize: 256, maxzoom: 19 } },
+        layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#0b0f17' } }, { id: 'base', type: 'raster', source: 'base' }] };
+    }
+    var m = new maplibregl.Map({ container: 'map', style: style(), center: [100.5018, 13.7563], zoom: 11, attributionControl: false,
+      dragRotate: false, pitchWithRotate: false, fadeDuration: 0, antialias: false, renderWorldCopies: false });
+    try { m.touchZoomRotate.disableRotation(); } catch (e) { }
+    function geo(pts) {
+      var c = [];
+      for (var i = 0; i < pts.length; i++) c.push([pts[i][1], pts[i][0]]);
+      return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: c } };
+    }
+    function flowLayer() {
+      if (!key || m.getSource('flow')) return;
+      m.addSource('flow', { type: 'raster', tiles: [flowUrl()], tileSize: 256, maxzoom: 19 });
+      m.addLayer({ id: 'flow', type: 'raster', source: 'flow', paint: { 'raster-opacity': 0.8 } }, m.getLayer('route') ? 'route' : undefined);
+    }
+    function buildingLayer() {
+      if (!buildings || m.getLayer('buildings')) return;
+      if (!m.getSource('osm')) m.addSource('osm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+      m.addLayer({ id: 'buildings', type: 'fill-extrusion', source: 'osm', 'source-layer': 'building', minzoom: 14.5,
+        paint: { 'fill-extrusion-color': '#3a4a6b', 'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 9],
+          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0], 'fill-extrusion-opacity': 0.85 } });
+    }
+    function dress() {                     // everything laid over the base picture; put back each time the base changes
+      try {
+        flowLayer();
+        if (!m.getSource('route')) {
+          m.addSource('route', { type: 'geojson', data: geo(routePts) });
+          m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': accent, 'line-width': 8, 'line-opacity': 0.9 } });
+          m.addSource('done', { type: 'geojson', data: geo(donePts) });
+          m.addLayer({ id: 'done', type: 'line', source: 'done', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#56606e', 'line-width': 8 } });
+        }
+        buildingLayer();
+      } catch (e) { }
+    }
+    m.on('style.load', dress);
+    m.on('error', function (e) { if (e && e.sourceId === 'base') tileFailed(); });
+    m.on('data', function (e) { if (e && e.sourceId === 'base' && e.tile) tileLoaded(); });
+    m.on('move', function () { if (follow && carMark && here) carMark.setLngLat(m.getCenter()); });      // while following, the car is the middle of the picture: keep it glued there between fixes
+
+    function camera(z, quick) {
+      var o = { center: [here[1], here[0]], bearing: headingUp ? bearing : 0, pitch: headingUp ? tilt : 0,
+        padding: { top: headingUp ? Math.round(window.innerHeight * 0.3) : 0, bottom: 0, left: 0, right: 0 } };
+      if (z != null) o.zoom = z - 1;       // this map counts zoom one lower than picture-tile maps for the same scale
+      if (quick) m.jumpTo(o); else { o.duration = 950; o.easing = lin; m.easeTo(o); }
+    }
+
+    // How smoothly is it drawing? Time the gaps between frames while the map moves; when it clearly struggles, give up the costliest parts in turn.
+    var gaps = [], lastFrame = 0, slow = 0, told = 0;
+    m.on('render', function () {
+      var now = Date.now();
+      if (lastFrame && now - lastFrame < 500) gaps.push(now - lastFrame);
+      lastFrame = now;
+      if (gaps.length < 50) return;
+      var sum = 0;
+      for (var i = 0; i < gaps.length; i++) sum += gaps[i];
+      var fps = Math.round(1000 / (sum / gaps.length));
+      gaps = [];
+      if (now - told > 30000) { told = now; host.status('fps ' + fps); }
+      slow = fps < 10 ? slow + 1 : 0;
+      if (slow < 3) return;
+      slow = 0;
+      if (buildings) { buildings = false; try { m.removeLayer('buildings'); } catch (e) { } host.status('eased buildings off at fps ' + fps); }
+      else if (tilt > 35) { tilt = 35; host.status('eased tilt to 35 at fps ' + fps); }
+    });
+
+    return {
+      ready: false,
+      centre: function () { var c = m.getCenter(); return [c.lat, c.lng]; },
+      zoom: function () { return Math.round(m.getZoom()) + 1; },
+      setZoom: function (z) { m.easeTo({ zoom: z - 1, duration: 300 }); },
+      tiles: function () { m.setStyle(style(), { diff: false }); this.ready = true; },
+      traffic: function () { try { if (m.getLayer('flow')) m.removeLayer('flow'); if (m.getSource('flow')) m.removeSource('flow'); flowLayer(); } catch (e) { } },
+      colour: function () {
+        try { if (m.getLayer('route')) m.setPaintProperty('route', 'line-color', accent); } catch (e) { }
+        if (carMark) carMark.getElement().innerHTML = arrowSvg();
+      },
+      route: function (pts) { routePts = pts || []; if (!pts) donePts = []; try { m.getSource('route').setData(geo(routePts)); if (!pts) m.getSource('done').setData(geo([])); } catch (e) { } },
+      gone: function (pts) { donePts = pts; try { m.getSource('done').setData(geo(pts)); } catch (e) { } },
+      pin: function (ll) {
+        if (pinMark) { pinMark.remove(); pinMark = null; }
+        if (!ll) return;
+        var el = document.createElement('div');
+        el.innerHTML = PIN;
+        pinMark = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([ll[1], ll[0]]).addTo(m);
+      },
+      mode: function () { m.resize(); if (here && follow) camera(null, true); },
+      resize: function () { m.resize(); },
+      show: function (first, z) {
+        if (!carMark) {
+          var el = document.createElement('div');
+          el.style.width = '44px'; el.style.height = '44px';
+          el.innerHTML = arrowSvg();
+          carMark = new maplibregl.Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([here[1], here[0]]).addTo(m);
+        }
+        carMark.setRotation(bearing);
+        if (follow) camera(z, first); else carMark.setLngLat([here[1], here[0]]);
+      },
+      jump: function (z) { camera(z, true); if (carMark) carMark.setLngLat([here[1], here[0]]); },
+      onDrag: function (cb) { m.on('dragstart', function (e) { if (e && e.originalEvent) cb(); }); }
+    };
+  }
+
+  // ---------------------------------------------------------------- shared between the two
+
   setInterval(function () {            // fresh traffic every two minutes
-    if (!key || document.hidden) return;
+    if (!key || document.hidden || !view.ready) return;
     stamp = Date.now();
-    flow.setUrl(T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp);
+    view.traffic();
   }, 120000);
 
   function say(text, seconds) {
@@ -157,14 +299,13 @@
     $('mode').innerHTML = headingUp
       ? '<svg viewBox="0 0 24 24"><path d="M12 3l6 17-6-4-6 4z" fill="currentColor"/></svg>'
       : '<span style="font-size:20px;font-weight:bold">N</span>';
-    map.dragging[headingUp ? 'disable' : 'enable']();
+    view.mode();
   }
 
   function refollow() {
     follow = true; autoZoom = true;
     $('centre').style.display = 'none';
-    if (here) map.setView(here, wantedZoom(), { animate: false });
-    turn();
+    if (here) view.jump(wantedZoom());
   }
 
   function wantedZoom() { return kmh < 35 ? 17 : kmh < 75 ? 16 : 15; }
@@ -176,14 +317,8 @@
     here = [lat, lon];
     kmh = speed < 0 ? 0 : speed;
     if (dir >= 0 && kmh > 5) bearing = dir;                       // a stopped car's compass reading wanders; keep the last good one
-    if (first) { car.addTo(map); paintArrow(); say('', 0); }
-    car.setLatLng(here);
-    if (follow) {
-      var z = autoZoom ? wantedZoom() : map.getZoom();
-      if (first || z !== map.getZoom()) map.setView(here, z, { animate: false });
-      else map.panTo(here, { animate: true, duration: 0.5, easeLinearity: 1 });
-    }
-    turn();
+    if (first) say('', 0);
+    view.show(first, follow && autoZoom ? wantedZoom() : null);
     if (route) progress();
   }
 
@@ -209,7 +344,7 @@
 
   /** Places matching some words, nearest first where the service allows: TomTom with a key, the free Photon service without. */
   function places(query, most, ok, fail) {
-    var near = here || [map.getCenter().lat, map.getCenter().lng];
+    var near = here || view.centre();
     var photon = function () {
       get('https://photon.komoot.io/api/?limit=' + most + '&q=' + encodeURIComponent(query) + '&lat=' + near[0] + '&lon=' + near[1], function (j) {
         var out = [], fs = j.features || [];
@@ -306,9 +441,9 @@
   function start(r, name, target) {
     route = r; route.name = name; route.to = target;
     at = 0; along = 0; off = 0;
-    line.setStyle({ color: accent }).setLatLngs(r.pts).addTo(map);
-    done.setLatLngs([]).addTo(map);
-    pin.setLatLng(target).addTo(map);
+    view.route(r.pts);
+    view.gone([]);
+    view.pin(target);
     $('say').style.display = 'none';
     $('trip').style.display = 'block';
     $('turn').style.display = 'block';
@@ -318,7 +453,7 @@
 
   function clear(quiet) {
     route = null;
-    line.remove(); done.remove(); pin.remove();
+    view.route(null); view.pin(null);
     $('trip').style.display = 'none';
     $('turn').style.display = 'none';
     if (!quiet) host.save('route', '');
@@ -345,7 +480,7 @@
       return;
     }
     if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); return; }
-    done.setLatLngs(route.pts.slice(0, at + 1).concat([here]));
+    view.gone(route.pts.slice(0, at + 1).concat([here]));
     $('tripMain').textContent = far(left) + '  ·  ' + lasting(route.dur * left / Math.max(1, route.dist));
     var next = null;
     for (var s = 0; s < route.steps.length; s++) if (route.steps[s].at > gone + 8) { next = route.steps[s]; break; }
@@ -368,10 +503,13 @@
     }, function (why) { host.result(JSON.stringify({ ok: false, why: 'place: ' + why })); });
   }
 
+  try { view = GL ? tiltView() : flatView(); }
+  catch (e) { host.fail(String((e && e.message) || e)); throw e; }          // the app then shows the flat map instead
+
   // ---------------------------------------------------------------- keys on the map
 
-  $('in').onclick = function () { autoZoom = false; map.setZoom(Math.min(19, map.getZoom() + 1)); };
-  $('out').onclick = function () { autoZoom = false; map.setZoom(Math.max(4, map.getZoom() - 1)); };
+  $('in').onclick = function () { autoZoom = false; view.setZoom(Math.min(19, view.zoom() + 1)); };
+  $('out').onclick = function () { autoZoom = false; view.setZoom(Math.max(4, view.zoom() - 1)); };
   $('centre').onclick = refollow;
   $('stop').onclick = function () { clear(false); };
   // the search box: type a place, pick one of the results, and the way there is drawn
@@ -413,15 +551,15 @@
   $('mode').onclick = function () {
     headingUp = !headingUp;
     host.save('headingUp', headingUp ? '1' : '0');
-    modeLabel(); size(); refollow();
+    modeLabel(); refollow();
   };
-  map.on('dragstart', function () {             // looking around by hand (north-up only): hold still, then return to the car by itself
+  view.onDrag(function () {                     // looking around by hand: hold still, then return to the car by itself
     follow = false;
     $('centre').style.display = 'block';
     clearTimeout(freeTimer);
     freeTimer = setTimeout(refollow, 20000);
   });
-  window.addEventListener('resize', size);
+  window.addEventListener('resize', function () { view.resize(); });
 
   window.car = {
     fix: fix, go: go, clear: function () { clear(false); },
@@ -431,13 +569,12 @@
       key = k || '';
       if (colour) accent = colour;
       if (up === 0 || up === 1) headingUp = up === 1;
-      modeLabel(); size(); paintArrow(); turn();
-      if (changed || !map.hasLayer(base)) tiles();
-      if (route) line.setStyle({ color: accent });
+      if (changed || !view.ready) { stamp = Date.now(); view.tiles(); credit(); }
+      modeLabel(); view.colour();
     }
   };
 
-  modeLabel(); size(); tiles();
+  modeLabel(); view.tiles(); credit();
   say('รอสัญญาณ GPS', 0);
   host.result(JSON.stringify({ ready: true }));
 })();
