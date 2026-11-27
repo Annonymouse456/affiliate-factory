@@ -1026,10 +1026,12 @@ function panelAI(){
   panel.appendChild(pv);
   // API key (simple mode)
   const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px;margin-top:8px";
-  kr.innerHTML=`<input class="aiInput" id="aiKey" type="password" autocomplete="off" placeholder="วาง ${prov==="openai"?"OpenAI":"Gemini"} API Key ที่นี่" value="${key.replace(/"/g,"&quot;")}">`;
-  const ks=document.createElement("button");ks.className="chip";ks.textContent=key?"✓ 💾":"💾";ks.title="บันทึกคีย์";
-  ks.onclick=()=>{ const k=$("#aiKey").value.trim(); setKey(k); const d=detectProv(k); if(d)setProv(d); aiToast(d?("บันทึกแล้ว · ตรวจพบ "+(d==="openai"?"OpenAI":"Gemini")+" อัตโนมัติ"):"บันทึกคีย์แล้ว (เก็บในเครื่องคุณ)"); refreshPanel(); };
-  kr.appendChild(ks);panel.appendChild(kr);
+  kr.innerHTML=`<input class="aiInput" id="aiKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="วาง API Key (sk-... หรือ AIza...)" value="${key.replace(/"/g,"&quot;")}">`;
+  const ks=document.createElement("button");ks.className="chip";ks.textContent="💾";ks.title="บันทึกคีย์";
+  ks.onclick=()=>{ const k=$("#aiKey").value.trim(); setKey(k); const d=detectProv(k); if(d)setProv(d); aiToast(k?(d?("บันทึกแล้ว · "+(d==="openai"?"OpenAI":"Gemini")):"บันทึกคีย์แล้ว"):"ล้างคีย์แล้ว"); refreshPanel(); };
+  const kc=document.createElement("button");kc.className="chip";kc.textContent="🗑";kc.title="ลบคีย์";
+  kc.onclick=()=>{ setKey(""); const el=$("#aiKey"); if(el)el.value=""; aiToast("ลบคีย์แล้ว — วางคีย์ใหม่ได้เลย"); refreshPanel(); };
+  kr.append(ks,kc);panel.appendChild(kr);
 
   const g=document.createElement("div");g.className="chips";g.style.marginTop="10px";
   const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
