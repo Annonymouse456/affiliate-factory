@@ -186,7 +186,8 @@ public class MapService extends Service {
     /** The 3D map has a search box, so its window must take the keyboard; the light map must not take anything from the app underneath. */
     private void focus(WindowManager.LayoutParams at) {
         int plain = WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
-        at.flags = plain | (is3d ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+        at.flags = plain | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;       // both maps have a search box now, so both take the keyboard
+        at.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
     }
 
     private String asset(String name) throws java.io.IOException {
