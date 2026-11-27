@@ -967,15 +967,19 @@ const PROMPTS={
 };
 function getWorker(){ try{return localStorage.getItem(AI_KEY)||"";}catch(_){return "";} }
 function setWorker(u){ try{localStorage.setItem(AI_KEY,u);}catch(_){} }
-function getKey(){ try{return localStorage.getItem(KEY_K)||"";}catch(_){return "";} }
-function setKey(k){ try{localStorage.setItem(KEY_K,k);}catch(_){} }
-function getProv(){ try{return localStorage.getItem(PROV_K)||"gemini";}catch(_){return "gemini";} }
+function keySlot(p){ return "glow.ai.key."+p; }
+function getKeyFor(p){ try{return localStorage.getItem(keySlot(p))||"";}catch(_){return "";} }
+function setKeyFor(p,v){ try{ if(v)localStorage.setItem(keySlot(p),v); else localStorage.removeItem(keySlot(p)); }catch(_){} }
 function setProv(p){ try{localStorage.setItem(PROV_K,p);}catch(_){} }
+function anyKey(){ return getKeyFor("gemini")||getKeyFor("openai"); }
+function activeProv(){ let p=null; try{p=localStorage.getItem(PROV_K);}catch(_){ } if(p&&getKeyFor(p))return p; if(getKeyFor("gemini"))return "gemini"; if(getKeyFor("openai"))return "openai"; return p||"gemini"; }
+function activeKey(){ return getKeyFor(activeProv()); }
 function splitDataURL(d){ const m=/^data:([^;]+);base64,(.*)$/s.exec(d); return m?{mime:m[1],b64:m[2]}:{mime:"image/png",b64:d}; }
 function b64ToBlob(b64,mime){ const bin=atob(b64),a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return new Blob([a],{type:mime||"image/png"}); }
 function detectProv(k){ if(/^sk-/i.test(k))return "openai"; if(/^AIza/.test(k))return "gemini"; return null; }
+(function(){ try{ const old=localStorage.getItem(KEY_K); if(old){ const d=detectProv(old)||"gemini"; if(!getKeyFor(d))localStorage.setItem(keySlot(d),old); localStorage.removeItem(KEY_K); } }catch(_){ } })();
 async function callDirect(op,image,prompt){
-  const key=getKey(); const prov=detectProv(key)||getProv();
+  const prov=activeProv(), key=getKeyFor(prov);
   return prov==="openai" ? openaiDirect(key,image,prompt) : geminiDirect(key,image,prompt);
 }
 async function geminiDirect(key,image,prompt){
@@ -1003,7 +1007,7 @@ function aiImage(max){ const ar=S.natW/S.natH; let w=S.natW,h=S.natH;
   return c.toDataURL("image/jpeg",0.92); }
 async function applyAI(src){ S.baseSrc=src; await loadImg(src); fitStage(); dctx.clearRect(0,0,dood.width,dood.height); render(); repositionAll(); snapshot(); }
 async function aiRun(op,prompt){
-  const url=getWorker(), key=getKey();
+  const url=getWorker(), key=anyKey();
   if(!url && !key){ aiToast("วาง API Key ของคุณก่อน แล้วกด 💾"); return; }
   if(op==="edit" && !prompt){ aiToast("พิมพ์คำสั่งก่อน เช่น “ลบคนข้างหลังออก”"); return; }
   if(aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังประมวลผล AI… (ปกติ 10–30 วินาที)");
@@ -1027,18 +1031,17 @@ async function aiRun(op,prompt){
 }
 function panelAI(){
   head("AI ขั้นสูง");
-  const key=getKey();
-  if(!key){
+  if(!anyKey()){
     const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px";
-    kr.innerHTML=`<input class="aiInput" id="aiKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="วาง API Key ที่นี่">`;
+    kr.innerHTML=`<input class="aiInput" id="aiKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="วาง API Key (Gemini หรือ OpenAI)">`;
     const ks=document.createElement("button");ks.className="tbtn primary";ks.textContent="บันทึก";
-    ks.onclick=()=>{ const k=$("#aiKey").value.trim(); if(!k){aiToast("วางคีย์ก่อน");return;} const d=detectProv(k); if(!d){aiToast("คีย์ไม่ถูกรูปแบบ — ต้องขึ้นต้น AIza (Gemini) หรือ sk- (OpenAI)");return;} setKey(k); setProv(d); aiToast("บันทึกแล้ว ✓ ใช้ "+(d==="openai"?"OpenAI":"Gemini")); refreshPanel(); };
+    ks.onclick=()=>{ const k=$("#aiKey").value.trim(); if(!k){aiToast("วางคีย์ก่อน");return;} const d=detectProv(k); if(!d){aiToast("คีย์ไม่ถูกรูปแบบ — ต้องขึ้นต้น AIza (Gemini) หรือ sk- (OpenAI)");return;} setKeyFor(d,k); setProv(d); aiToast("บันทึกแล้ว ✓ ใช้ "+(d==="openai"?"OpenAI":"Gemini")+" — เพิ่มอีกคีย์ใน ⚙ ได้"); refreshPanel(); };
     kr.appendChild(ks);panel.appendChild(kr);
-    const n=document.createElement("p");n.className="note";n.innerHTML="วาง API Key แล้วกด <b>บันทึก</b> → ระบบรู้เองว่า Gemini (AIza…) หรือ OpenAI (sk-…) · เอาคีย์ Gemini ฟรีที่ aistudio.google.com · คีย์อยู่ในเครื่องคุณ ไม่ส่งให้ใคร";panel.appendChild(n);
-    panelAIAdvanced(); return;
+    const n=document.createElement("p");n.className="note";n.innerHTML="วางคีย์ Gemini (AIza…) หรือ OpenAI (sk-…) แล้วกด <b>บันทึก</b> · มีทั้งสองก็เพิ่มทีหลังใน ⚙ ได้ · คีย์อยู่ในเครื่องคุณ";panel.appendChild(n);
+    return;
   }
-  // key saved → hide the key, show only the tools
-  const prov=detectProv(key)||getProv();
+  // has key(s) → hide keys, show only the tools
+  const prov=activeProv();
   const g=document.createElement("div");g.className="chips";
   const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
   g.append(mk("🪄 ลบพื้นหลัง","remove_bg"),mk("✨ HD / เพิ่มความคมชัด","enhance"),mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."));
@@ -1047,25 +1050,34 @@ function panelAI(){
   pr.innerHTML=`<input class="aiInput" id="aiPrompt" placeholder="สั่งแก้ด้วยข้อความ เช่น ลบแก้วกาแฟออก / เปลี่ยนพื้นหลังเป็นชายหาด">`;
   const pb=document.createElement("button");pb.className="tbtn primary";pb.textContent="ทำ";pb.onclick=()=>aiRun("edit",$("#aiPrompt").value.trim());
   pr.appendChild(pb);panel.appendChild(pr);
-  const n=document.createElement("p");n.className="note";n.innerHTML=`พร้อมใช้ (${prov==="openai"?"OpenAI":"Gemini"}) · เลือกรูป “รูป” บนขวาก่อน แล้วกดฟีเจอร์ · รอ 10–30 วิ`;panel.appendChild(n);
+  const bothKeys=getKeyFor("gemini")&&getKeyFor("openai");
+  const n=document.createElement("p");n.className="note";n.innerHTML=`กำลังใช้: <b>${prov==="openai"?"OpenAI":"Gemini"}</b>${bothKeys?" (สลับได้ใน ⚙)":""} · เลือกรูป “รูป” บนขวาก่อน แล้วกดฟีเจอร์ · รอ 10–30 วิ`;panel.appendChild(n);
   const adv=document.createElement("details");adv.style.marginTop="10px";
   const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="⚙ คีย์ & ตั้งค่า";adv.appendChild(sm);
-  const row=document.createElement("div");row.style.cssText="display:flex;align-items:center;gap:8px;margin-top:8px";
-  row.innerHTML=`<div style="flex:1;min-width:0;font-size:.78rem;color:var(--muted)">คีย์ ${prov==="openai"?"OpenAI":"Gemini"} …${key.slice(-4)} บันทึกแล้ว ✓</div>`;
-  const ch=document.createElement("button");ch.className="chip";ch.textContent="เปลี่ยนคีย์";ch.onclick=()=>{ setKey(""); aiToast("ล้างคีย์แล้ว"); refreshPanel(); };
-  row.appendChild(ch);adv.appendChild(row);
-  const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:8px";
-  wr.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="Cloudflare Worker URL (ไม่จำเป็น)" value="${getWorker().replace(/"/g,"&quot;")}">`;
-  const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก Worker URL แล้ว"); };
-  wr.appendChild(ws);adv.appendChild(wr);panel.appendChild(adv);
-}
-function panelAIAdvanced(){
-  const adv=document.createElement("details");adv.style.marginTop="12px";
-  const sm=document.createElement("summary");sm.style.cssText="font-size:.76rem;color:var(--muted);cursor:pointer";sm.textContent="ขั้นสูง: ใช้ Cloudflare Worker แทน";adv.appendChild(sm);
-  const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:8px";
+  if(bothKeys){
+    const cl=document.createElement("div");cl.style.cssText="font-size:.74rem;color:var(--muted);margin-top:8px";cl.textContent="ใช้ตอนนี้:";adv.appendChild(cl);
+    const chips=document.createElement("div");chips.className="chips";chips.style.marginTop="4px";
+    [["gemini","Gemini"],["openai","OpenAI"]].forEach(([k,lab])=>{const c=document.createElement("button");c.className="chip"+(prov===k?" active":"");c.textContent=lab;c.onclick=()=>{setProv(k);aiToast("ใช้ "+lab+" แล้ว");refreshPanel();};chips.appendChild(c);});
+    adv.appendChild(chips);
+  }
+  aiKeyRow(adv,"gemini","Gemini key","AIza… (ฟรีที่ aistudio.google.com)");
+  aiKeyRow(adv,"openai","OpenAI key","sk-…");
+  const wlbl=document.createElement("div");wlbl.style.cssText="font-size:.74rem;color:var(--muted);margin-top:12px";wlbl.textContent="Cloudflare Worker (ไม่จำเป็น)";adv.appendChild(wlbl);
+  const wr=document.createElement("div");wr.style.cssText="display:flex;gap:8px;margin-top:4px";
   wr.innerHTML=`<input class="aiInput" id="aiUrl" placeholder="Worker URL" value="${getWorker().replace(/"/g,"&quot;")}">`;
   const ws=document.createElement("button");ws.className="chip";ws.textContent="💾";ws.onclick=()=>{ setWorker($("#aiUrl").value.trim()); aiToast("บันทึก Worker URL แล้ว"); };
   wr.appendChild(ws);adv.appendChild(wr);panel.appendChild(adv);
+}
+function aiKeyRow(adv,pk,label,ph){
+  const saved=getKeyFor(pk);
+  const lbl=document.createElement("div");lbl.style.cssText="font-size:.74rem;color:var(--muted);margin-top:10px";lbl.textContent=label+(saved?" · บันทึกแล้ว ✓":"");adv.appendChild(lbl);
+  const row=document.createElement("div");row.style.cssText="display:flex;gap:8px;margin-top:4px";
+  const inp=document.createElement("input");inp.className="aiInput";inp.type="text";inp.autocomplete="off";inp.autocapitalize="off";inp.spellcheck=false;inp.placeholder=ph;inp.value=saved;
+  const sv=document.createElement("button");sv.className="chip";sv.textContent="💾";
+  sv.onclick=()=>{ const v=inp.value.trim(); if(v && detectProv(v)!==pk){ aiToast("คีย์นี้ไม่ใช่ของ "+label+" (ต้องขึ้นต้น "+(pk==="gemini"?"AIza":"sk-")+")"); return; } setKeyFor(pk,v); if(v)setProv(pk); aiToast(v?(label+" บันทึกแล้ว ✓"):(label+" ลบแล้ว")); refreshPanel(); };
+  row.append(inp,sv);
+  if(saved){ const del=document.createElement("button");del.className="chip";del.textContent="🗑";del.onclick=()=>{ setKeyFor(pk,""); aiToast(label+" ลบแล้ว"); refreshPanel(); }; row.appendChild(del); }
+  adv.appendChild(row);
 }
 
 /* ========== FULLSCREEN ========== */
