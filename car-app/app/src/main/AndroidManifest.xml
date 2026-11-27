@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- road name and posted speed limit come from an online map service -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- the update key downloads a newer copy of this app and opens the system installer for it -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- the voice co-pilot records the spoken question -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
