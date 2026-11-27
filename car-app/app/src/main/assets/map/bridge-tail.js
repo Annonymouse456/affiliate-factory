@@ -29,6 +29,7 @@
     },
     clear: function () { try { closeNav(); } catch (e) { } },
     go: function (q) {
+      if (q.charAt(0) === '+') q = q.substring(1);          // the published 3D page has no stops on the way: treat it as the destination
       var c = map.getCenter();
       var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\|(.*))?$/.exec(q);   // "latitude,longitude" or "latitude,longitude|name": no search needed
       (exact ? Promise.resolve({ json: function () { return { features: [{ geometry: { coordinates: [parseFloat(exact[2]), parseFloat(exact[1])] }, properties: { name: exact[3] || 'จุดหมายที่เลือก' } }] }; } }) :
