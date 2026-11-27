@@ -71,7 +71,7 @@ import java.util.Locale;
  */
 public class MainActivity extends Activity {
 
-    private static final String VERSION = "แอป 4.8";
+    private static final String VERSION = "แอป 4.9";
     private static final int[] LIMITS = {60, 80, 90, 100, 120};
     private static final int INK = 0xFFF1F5F6, INK_DIM = 0xFFB4C1C4, GLASS = 0xB80A0F12, BAR = 0xDB0A0F12, PATH_BLUE = 0xFF3A93FF, SIGN_RED = 0xFFE5483D;
 
@@ -110,6 +110,7 @@ public class MainActivity extends Activity {
         setContentView(buildScreen());
         hideSystemBars();
         note(VERSION + " · Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ") · " + Build.MODEL);
+        Updater.peek(this, new Updater.Say() { @Override public void line(String text) { note(text); } });
 
         String crash = prefs().getString("crash", null);
         if (crash != null) {                 // show the last crash so a photo of the screen explains it
@@ -248,6 +249,7 @@ public class MainActivity extends Activity {
         key(bar, "ซ้อนบนแอปกล้อง", new Runnable() { @Override public void run() { floatOverCameraApp(); } });
         key(bar, "เพลงบลูทูธ", new Runnable() { @Override public void run() { music(); } });
         key(bar, "ตั้งค่า AI", new Runnable() { @Override public void run() { aiSettings(); } });
+        key(bar, "อัปเดต", new Runnable() { @Override public void run() { Updater.run(MainActivity.this, new Updater.Say() { @Override public void line(String text) { note(text); } }); } });
         key(bar, "ออก", new Runnable() { @Override public void run() { finish(); } });
         clockText = label("--:--", 4.8f, INK, true);
         clockText.setPadding(unit * 3, 0, unit * 3, 0);
