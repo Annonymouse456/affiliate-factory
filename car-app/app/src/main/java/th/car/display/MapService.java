@@ -48,7 +48,8 @@ public class MapService extends Service {
     private FrameLayout frame;
     private WebView web;
     private boolean shown, ready;
-    private boolean want3d = true, is3d;    // asked for the full 3D map; showing it now
+    private boolean want3d = true, is3d;    // asked for the full 3D map; showing the published 3D page now
+    private boolean lite3d;                 // showing the built-in tilted map instead: the 3D look for a web engine too old for the published page
     private String loaded = "", why3d = ""; // which page is in the view; why the 3D map could not be used, shown on the light map
     private WindowManager.LayoutParams lastAt;
     private Messenger dashboard;
@@ -122,7 +123,7 @@ public class MapService extends Service {
                 ui.post(new Runnable() { @Override public void run() {
                     if (json != null && json.contains("\"ready\"")) {
                         ready = true; config(); fix();
-                        if (is3d) tell("3D เปิดได้ (" + engine() + ")"); else if (!why3d.isEmpty()) MapService.this.run("car.note(" + JSONObject.quote(why3d) + ")");
+                        if (is3d) tell("3D เปิดได้ (" + engine() + ")"); else if (lite3d) tell("3D แบบในแอป เปิดได้ (" + engine() + ")"); else if (!why3d.isEmpty()) MapService.this.run("car.note(" + JSONObject.quote(why3d) + ")");
                         return;
                     }
                     try {
@@ -137,7 +138,7 @@ public class MapService extends Service {
             }
             @JavascriptInterface public void fail(final String reason) {           // the 3D page could not start in this web engine
                 ui.post(new Runnable() { @Override public void run() {
-                    if (!is3d) return;
+                    if (!is3d && !lite3d) return;
                     why3d = "แผนที่ 3D เปิดไม่ได้บนจอนี้ ใช้แบบ 2D แทน (" + engine() + ": " + reason + ")";
                     tell(why3d);
                     load();
@@ -173,13 +174,11 @@ public class MapService extends Service {
     private void load() {
         ready = false;
         boolean full = want3d && why3d.isEmpty();
-        if (full && engineVersion() > 0 && engineVersion() < 80) {       // the 3D page is written in a newer form of JavaScript than this engine reads
-            why3d = "แผนที่ 3D ต้องใช้ Chrome 80 ขึ้นไป จอนี้เป็น " + engine() + " ใช้แบบ 2D แทน";
-            tell(why3d);
-            full = false;
-        }
-        is3d = full;
-        web.loadUrl(full ? FULL_MAP : "file:///android_asset/map/index.html");
+        // The published 3D page is written in a newer form of JavaScript than an old engine reads; such a unit gets the tilted map packed in the app.
+        boolean old = engineVersion() > 0 && engineVersion() < 80;
+        is3d = full && !old;
+        lite3d = full && old;
+        web.loadUrl(is3d ? FULL_MAP : lite3d ? "file:///android_asset/map/index.html#3d" : "file:///android_asset/map/index.html");
         if (shown && lastAt != null) { focus(lastAt); try { windows.updateViewLayout(frame, lastAt); } catch (Throwable ignored) { } }
     }
 
