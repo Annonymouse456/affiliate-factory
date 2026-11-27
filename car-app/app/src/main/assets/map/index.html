@@ -47,11 +47,14 @@
   #turnText { font-size: 22px; line-height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .95; }
 
   /* the trip: time left, distance and arrival time on one card across the bottom, with the key that ends guiding */
-  #trip { position: absolute; left: 10px; bottom: 10px; right: 10px; display: none; height: 92px; padding: 8px 92px 0 20px;
+  #trip { position: absolute; left: 10px; bottom: 10px; right: 10px; display: none; height: 92px; padding: 8px 164px 0 20px;
     border-radius: 20px; background: var(--card); color: var(--ink); box-shadow: var(--shade); box-sizing: border-box; }
   #tripMain { font-size: 32px; font-weight: bold; line-height: 38px; white-space: nowrap; color: var(--good); }
   #tripSub { font-size: 20px; line-height: 24px; white-space: nowrap; color: var(--dim); }
   #tripName { font-size: 16px; line-height: 20px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #voice { position: absolute; right: 90px; top: 14px; width: 64px; height: 64px; border-radius: 32px; background: var(--line); color: var(--ink); text-align: center; }
+  #voice svg { width: 34px; height: 34px; margin-top: 15px; }
+  #voice.off { color: #d93025; }
   #stop { position: absolute; right: 14px; top: 14px; width: 64px; height: 64px; line-height: 62px; border-radius: 32px; text-align: center; font-size: 30px;
     background: #d93025; color: #fff; }
 
@@ -78,7 +81,7 @@
 
 <div id="say"></div>
 <div id="turn"><span id="turnIcon"></span><div id="turnFar"></div><div id="turnText"></div></div>
-<div id="trip"><div id="tripMain"></div><div id="tripSub"></div><div id="tripName"></div><div id="stop">✕</div></div>
+<div id="trip"><div id="tripMain"></div><div id="tripSub"></div><div id="tripName"></div><div id="voice"></div><div id="stop">✕</div></div>
 
 <div id="find"><input id="q" type="text" placeholder="พิมพ์ชื่อสถานที่ที่จะไป" autocomplete="off"><div id="qx">✕</div><div id="how"><span id="howStop" class="on">แวะก่อนถึงจุดหมาย</span><span id="howNew">เปลี่ยนจุดหมาย</span></div><div id="hits"></div></div>
 
@@ -97,7 +100,8 @@
   'use strict';
   var T = 'https://api.tomtom.com';
   var $ = function (id) { return document.getElementById(id); };
-  var host = window.Host || { result: function () {}, save: function () {}, fail: function () {}, status: function () {} };      // the app; absent when opened in a plain browser
+  var host = window.Host || { result: function () {}, save: function () {}, fail: function () {}, status: function () {} };
+  if (!host.speak) host.speak = function () {};      // the app; absent when opened in a plain browser
 
   var key = '', accent = '#35c8ff';
   var headingUp = true, follow = true, autoZoom = true;
@@ -529,7 +533,41 @@
   function lasting(s) { var m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที' : m + ' นาที'; }
 
   /** Begin guiding along a planned way. stops: the places to pass in order, each { at, name }; the last is the destination. */
-  function start(r, stops) {
+  // ---------------------------------------------------------------- spoken turn instructions
+
+  var voiceOn = true, spoken = { id: -1, from: 0, done: {} };
+  function speak(text) { if (voiceOn && text) host.speak(text); }
+  function farWords(m) {
+    if (m >= 1000) { var k = m >= 10000 ? String(Math.round(m / 1000)) : (Math.round(m / 100) / 10).toFixed(1).replace('.0', ''); return k + ' กิโลเมตร'; }
+    return Math.max(50, Math.round(m / 50) * 50) + ' เมตร';
+  }
+  function voiceLabel() {
+    $('voice').className = voiceOn ? '' : 'off';
+    $('voice').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/>' +
+      (voiceOn ? '<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>' : '<path d="M17 9l5 6M22 9l-5 6"/>') + '</svg>';
+  }
+  /**
+   * Say the coming turn at set distances: 2 km, 700 m and 300 m before it, and once more just before it.
+   * A distance is only announced if the turn was further away than that when it became the next one,
+   * so a turn that appears 320 m ahead is not announced as "in 300 metres" a moment later.
+   */
+  function announce(next, d) {
+    if (spoken.id !== next.at) {
+      spoken = { id: next.at, from: d, done: {} };
+      if (d > 2600) { speak('ตรงไปอีก ' + farWords(d)); return; }
+    }
+    var marks = [300, 700, 2000], now = Math.max(50, kmh * 1.5);      // "now" is said earlier at speed, to allow for the moment it takes to fetch the voice
+    if (d <= now) { if (!spoken.done.now) { spoken.done = { now: 1, 300: 1, 700: 1, 2000: 1 }; speak(next.text); } return; }
+    for (var i = 0; i < marks.length; i++) {
+      var m = marks[i];
+      if (d > m) continue;
+      if (!spoken.done[m] && spoken.from > m + 150) speak('อีก ' + farWords(m) + ' ' + next.text);
+      for (var j = i; j < marks.length; j++) spoken.done[marks[j]] = 1;       // this distance and every longer one is now behind us
+      return;
+    }
+  }
+
+  function start(r, stops, again) {
     var last = stops[stops.length - 1];
     route = r; route.stops = stops; route.name = last.name; route.to = last.at;
     at = 0; along = 0; off = 0;
@@ -540,6 +578,9 @@
     $('trip').style.display = 'block';
     $('turn').style.display = 'block';
     skin();
+    spoken = { id: -1, from: 0, done: {} };
+    if (again) speak('เปลี่ยนเส้นทางใหม่แล้ว');
+    else speak((stops.length > 1 ? 'เริ่มนำทาง แวะ ' + stops[0].name + ' แล้วไป ' : 'เริ่มนำทางไป ') + last.name + ' ระยะทาง ' + farWords(r.dist) + ' ใช้เวลาประมาณ ' + lasting(r.dur));
     progress();
   }
 
@@ -571,12 +612,12 @@
     if (off >= 6 && Date.now() - lastReroute > 20000) {            // left the route for a few seconds: plan again from here
       lastReroute = Date.now(); off = 0;
       var keep = route.stops;
-      ways(here, keep, function (r) { if (route) start(r, keep); }, function () { });
+      ways(here, keep, function (r) { if (route) start(r, keep, true); }, function () { });
       return;
     }
-    if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); return; }
+    if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); speak('ถึงจุดหมายแล้ว'); return; }
     // a stop is reached when the car comes to the point on the route nearest to it; it then drops off the list and the way carries on
-    while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); }
+    while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { speak('ถึงจุดแวะ ' + route.stops[0].name + ' แล้ว'); route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); }
     $('tripName').textContent = route.stops.length > 1
       ? 'แวะ ' + route.stops[0].name + ' อีก ' + far(Math.max(0, (route.ends ? route.ends[0] : 0) - gone)) + (route.stops.length > 2 ? '  (+' + (route.stops.length - 2) + ' จุด)' : '') + '  →  ' + route.name
       : route.name;
@@ -590,6 +631,7 @@
     $('turnIcon').innerHTML = icon(next.kind);
     $('turnFar').textContent = far(next.at - gone);
     $('turnText').textContent = next.text;
+    announce(next, next.at - gone);
   }
 
   /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
@@ -617,6 +659,8 @@
   $('out').onclick = function () { autoZoom = false; view.setZoom(Math.max(4, view.zoom() - 1)); };
   $('centre').onclick = refollow;
   $('stop').onclick = function () { clear(false); };
+  $('voice').onclick = function () { voiceOn = !voiceOn; host.save('voice', voiceOn ? '1' : '0'); voiceLabel(); if (voiceOn) host.speak('เปิดเสียงนำทาง'); };
+  voiceLabel();
   // the search box: type a place, pick one of the results, and the way there is drawn
   var typing = null, asked = 0;
   function closeFind() { $('find').style.display = 'none'; $('q').blur(); $('q').value = ''; $('hits').innerHTML = ''; }
@@ -678,7 +722,8 @@
   window.car = {
     fix: fix, go: go, clear: function () { clear(false); },
     note: function (text) { say(text, 20); },
-    config: function (k, colour, up, look, shade) {
+    config: function (k, colour, up, look, shade, voice) {
+      if (voice === 0 || voice === 1) { voiceOn = voice === 1; voiceLabel(); }
       var changed = k !== key;
       key = k || '';
       if (colour) accent = colour;

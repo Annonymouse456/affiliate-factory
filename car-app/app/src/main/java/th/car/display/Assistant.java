@@ -113,6 +113,7 @@ final class Assistant {
     void tap() {
         if (app == null) return;
         if (CallWatch.inCall) { show(State.IDLE, "กำลังมีสายโทรศัพท์อยู่ ถาม AI ได้หลังวางสาย"); return; }
+        NavVoice.get().quiet();              // the driver wants to speak: a turn instruction must not talk over the question
         if (state == State.LISTENING) { Recorder r = recorder; if (r != null) r.stop(); return; }
         if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); return; }
         if (state != State.IDLE) return;
@@ -141,6 +142,7 @@ final class Assistant {
 
     /** A call is coming in: stop talking and stop listening at once. */
     void quiet() {
+        NavVoice.get().quiet();
         Recorder r = recorder;
         if (r != null) r.stop();
         if (state == State.SPEAKING) { stopSpeaking(); show(State.IDLE, null); }
