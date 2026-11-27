@@ -50,6 +50,9 @@
   #q { width: 100%; height: 50px; box-sizing: border-box; padding: 0 54px 0 14px; border-radius: 14px; border: 2px solid rgba(255,255,255,.35);
     background: rgba(12,17,26,.96); color: #eef3f7; font: inherit; font-size: 20px; outline: none; -webkit-appearance: none; -webkit-user-select: text; user-select: text; }
   #qx { position: absolute; right: 0; top: 0; width: 50px; height: 50px; line-height: 50px; text-align: center; font-size: 22px; color: #c3ccd6; }
+  #how { display: none; margin-top: 6px; }
+  #how span { display: inline-block; margin-right: 6px; padding: 8px 14px; border-radius: 12px; font-size: 16px; background: rgba(12,17,26,.96); color: #9aa6b4; border: 2px solid rgba(255,255,255,.14); }
+  #how span.on { color: #fff; border-color: #4da6ff; background: #123a6b; }
   #hits { margin-top: 6px; border-radius: 14px; overflow: hidden; background: rgba(12,17,26,.96); }
   #hits div { padding: 9px 14px; border-bottom: 1px solid rgba(255,255,255,.12); font-size: 18px; line-height: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #hits div small { display: block; font-size: 13px; line-height: 17px; color: #9aa6b4; overflow: hidden; text-overflow: ellipsis; }
@@ -66,7 +69,7 @@
 <div id="turn"><span id="turnIcon"></span><div id="turnFar"></div><div id="turnText"></div></div>
 <div id="trip"><div id="tripMain"></div><div id="tripName"></div><div id="stop">✕</div></div>
 
-<div id="find"><input id="q" type="text" placeholder="พิมพ์ชื่อสถานที่ที่จะไป" autocomplete="off"><div id="qx">✕</div><div id="hits"></div></div>
+<div id="find"><input id="q" type="text" placeholder="พิมพ์ชื่อสถานที่ที่จะไป" autocomplete="off"><div id="qx">✕</div><div id="how"><span id="howStop" class="on">แวะก่อนถึงจุดหมาย</span><span id="howNew">เปลี่ยนจุดหมาย</span></div><div id="hits"></div></div>
 
 <div class="keys">
   <div class="key" id="look"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/></svg></div>
@@ -110,7 +113,10 @@
     return '<svg viewBox="0 0 44 44" width="44" height="44"><circle cx="22" cy="22" r="21" fill="#0b1220" opacity=".55"/>' +
       '<path d="M22 5l12 30-12-7-12 7z" fill="' + accent + '" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
   }
-  var PIN = '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="#ff4d5e" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>';
+  /** A pin: red for the destination, amber for a stop on the way. */
+  function pinSvg(last) {
+    return '<svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="' + (last ? '#ff4d5e' : '#ffa51f') + '" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>';
+  }
   var troubled = false, fails = 0;
   function tileFailed() { if (++fails >= 6 && !troubled) { troubled = true; say('โหลดแผนที่ไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 0); } }
   function tileLoaded() { fails = 0; if (troubled) { troubled = false; say('', 0); } }
@@ -126,7 +132,7 @@
     var edge = L.polyline([], { color: look3().edge, weight: 15, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
     var line = L.polyline([], { color: look3().way, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
     var done = L.polyline([], { color: look3().gone, weight: 9, opacity: 1, interactive: false });
-    var pin = L.marker([0, 0], { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null, html: PIN }) });
+    var pinsNow = [];
     var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
     base.on('tileerror', tileFailed);
     base.on('tileload', tileLoaded);
@@ -163,7 +169,11 @@
       colour: function () { var a = $('arrow'); if (a) a.innerHTML = arrowSvg(); turn(); },
       route: function (pts) { if (pts) { edge.setLatLngs(pts).addTo(map); line.setLatLngs(pts).addTo(map); } else { edge.remove(); line.remove(); done.remove(); } },
       gone: function (pts) { done.setLatLngs(pts); if (!map.hasLayer(done)) done.addTo(map); },
-      pin: function (ll) { if (ll) pin.setLatLng(ll).addTo(map); else pin.remove(); },
+      pins: function (stops) {
+        for (var i = 0; i < pinsNow.length; i++) pinsNow[i].remove();
+        pinsNow = [];
+        for (i = 0; i < stops.length; i++) pinsNow.push(L.marker(stops[i].at, { interactive: false, icon: L.divIcon({ className: 'pin', iconSize: null, html: pinSvg(i === stops.length - 1) }) }).addTo(map));
+      },
       mode: function () { map.dragging[headingUp ? 'disable' : 'enable'](); size(); turn(); },
       resize: size,
       show: function (first, z) {
@@ -187,7 +197,7 @@
     if (!window.maplibregl || !maplibregl.supported()) throw new Error('no WebGL');
     var spin = $('spin').style;
     spin.width = '100%'; spin.height = '100%'; spin.left = '0'; spin.top = '0'; spin.transition = 'none';
-    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMark = null, lin = function (t) { return t; };
+    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMarks = [], lin = function (t) { return t; };
     function style() {
       var urls = [], sub = key ? [''] : ['a', 'b', 'c', 'd'];
       for (var i = 0; i < sub.length; i++) urls.push(baseUrl().replace('{s}', sub[i]));
@@ -271,12 +281,14 @@
       },
       route: function (pts) { routePts = pts || []; if (!pts) donePts = []; try { m.getSource('route').setData(geo(routePts)); if (!pts) m.getSource('done').setData(geo([])); } catch (e) { } },
       gone: function (pts) { donePts = pts; try { m.getSource('done').setData(geo(pts)); } catch (e) { } },
-      pin: function (ll) {
-        if (pinMark) { pinMark.remove(); pinMark = null; }
-        if (!ll) return;
-        var el = document.createElement('div');
-        el.innerHTML = PIN;
-        pinMark = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([ll[1], ll[0]]).addTo(m);
+      pins: function (stops) {
+        for (var i = 0; i < pinMarks.length; i++) pinMarks[i].remove();
+        pinMarks = [];
+        for (i = 0; i < stops.length; i++) {
+          var el = document.createElement('div');
+          el.innerHTML = pinSvg(i === stops.length - 1);
+          pinMarks.push(new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([stops[i].at[1], stops[i].at[0]]).addTo(m));
+        }
       },
       mode: function () { m.resize(); if (here && follow) camera(null, true); },
       resize: function () { m.resize(); },
@@ -424,14 +436,20 @@
     return (TURN[m.modifier] || 'ตรงไป') + road;
   }
 
-  function ways(from, to, ok, fail) {
+  /** A way from here through each of the points in turn; the last one is the destination. */
+  function ways(from, via, ok, fail) {
+    var chain = function (sep, lonFirst) {           // the points after the start, written the way each service wants them
+      var out = '';
+      for (var i = 0; i < via.length; i++) out += sep + (lonFirst ? via[i].at[1] + ',' + via[i].at[0] : via[i].at[0] + ',' + via[i].at[1]);
+      return out;
+    };
     var finish = function (r) {
       r.cum = [0];
       for (var i = 1; i < r.pts.length; i++) r.cum[i] = r.cum[i - 1] + metres(r.pts[i - 1], r.pts[i]);
       ok(r);
     };
     var osrm = function () {
-      get('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + ';' + to[1] + ',' + to[0] + '?overview=full&geometries=geojson&steps=true', function (j) {
+      get('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + chain(';', true) + '?overview=full&geometries=geojson&steps=true', function (j) {
         var rt = (j.routes || [])[0];
         if (!rt) return fail('no route');
         var steps = [], acc = 0, l, s;
@@ -442,39 +460,46 @@
         }
         var pts = [], c = rt.geometry.coordinates;
         for (var i = 0; i < c.length; i++) pts.push([c[i][1], c[i][0]]);
-        finish({ traffic: false, dist: rt.distance, dur: rt.duration, pts: pts, steps: steps });
+        var ends = [], run = 0;
+        for (l = 0; l < rt.legs.length; l++) { run += rt.legs[l].distance; ends.push(run); }
+        finish({ traffic: false, dist: rt.distance, dur: rt.duration, pts: pts, steps: steps, ends: ends });
       }, fail);
     };
     if (!key) return osrm();
-    get(T + '/routing/1/calculateRoute/' + from[0] + ',' + from[1] + ':' + to[0] + ',' + to[1] + '/json?key=' + key + '&traffic=true&travelMode=car&instructionsType=text&language=th-TH', function (j) {
+    get(T + '/routing/1/calculateRoute/' + from[0] + ',' + from[1] + chain(':', false) + '/json?key=' + key + '&traffic=true&travelMode=car&instructionsType=text&language=th-TH', function (j) {
       var rt = (j.routes || [])[0];
       if (!rt) return osrm();
       var pts = [], l, i, ins = (rt.guidance || {}).instructions || [], steps = [];
       for (l = 0; l < rt.legs.length; l++) for (i = 0; i < rt.legs[l].points.length; i++) pts.push([rt.legs[l].points[i].latitude, rt.legs[l].points[i].longitude]);
       for (i = 0; i < ins.length; i++) steps.push({ text: ins[i].message, at: ins[i].routeOffsetInMeters, kind: tomtomKind(ins[i].maneuver) });
-      finish({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps });
+      var ends = [], run = 0;
+      for (l = 0; l < rt.legs.length; l++) { run += (rt.legs[l].summary || {}).lengthInMeters || 0; ends.push(run); }
+      finish({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps, ends: ends });
     }, osrm);                       // key refused or quota used up: fall back to the free router
   }
 
   function far(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' กม.' : Math.max(10, Math.round(m / 10) * 10) + ' ม.'; }
   function lasting(s) { var m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที' : m + ' นาที'; }
 
-  function start(r, name, target) {
-    route = r; route.name = name; route.to = target;
+  /** Begin guiding along a planned way. stops: the places to pass in order, each { at, name }; the last is the destination. */
+  function start(r, stops) {
+    var last = stops[stops.length - 1];
+    route = r; route.stops = stops; route.name = last.name; route.to = last.at;
     at = 0; along = 0; off = 0;
     view.route(r.pts);
     view.gone([]);
-    view.pin(target);
+    view.pins(stops);
     $('say').style.display = 'none';
     $('trip').style.display = 'block';
     $('turn').style.display = 'block';
-    $('tripName').textContent = name;
     progress();
   }
 
+  function plan(stops, ok, fail) { ways(here, stops, function (r) { start(r, stops); if (ok) ok(r); }, fail || function () { }); }
+
   function clear(quiet) {
     route = null;
-    view.route(null); view.pin(null);
+    view.route(null); view.pins([]);
     $('trip').style.display = 'none';
     $('turn').style.display = 'none';
     if (!quiet) host.save('route', '');
@@ -496,11 +521,16 @@
     var gone = route.cum[at] + (route.cum[at + 1] - route.cum[at]) * along || 0, left = route.dist - gone;
     if (off >= 6 && Date.now() - lastReroute > 20000) {            // left the route for a few seconds: plan again from here
       lastReroute = Date.now(); off = 0;
-      var name = route.name, target = route.to;
-      ways(here, target, function (r) { if (route) start(r, name, target); }, function () { });
+      var keep = route.stops;
+      ways(here, keep, function (r) { if (route) start(r, keep); }, function () { });
       return;
     }
     if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); return; }
+    // a stop is reached when the car comes to the point on the route nearest to it; it then drops off the list and the way carries on
+    while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); }
+    $('tripName').textContent = route.stops.length > 1
+      ? 'แวะ ' + route.stops[0].name + ' อีก ' + far(Math.max(0, (route.ends ? route.ends[0] : 0) - gone)) + (route.stops.length > 2 ? '  (+' + (route.stops.length - 2) + ' จุด)' : '') + '  →  ' + route.name
+      : route.name;
     view.gone(route.pts.slice(0, at + 1).concat([here]));
     $('tripMain').textContent = far(left) + '  ·  ' + lasting(route.dur * left / Math.max(1, route.dist));
     var next = null;
@@ -514,12 +544,15 @@
   /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
   function go(query) {
     if (!here) return host.result(JSON.stringify({ ok: false, why: 'no gps' }));
+    var asStop = query.charAt(0) === '+';
+    if (asStop) query = query.substring(1);
     var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\|(.*))?$/.exec(query);        // "latitude,longitude" or "latitude,longitude|name": no search needed
     (exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: exact[3] || 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
-      ways(here, place.at, function (r) {
-        start(r, place.name, place.at);
+      var stops = asStop && route ? [place].concat(route.stops) : [place];
+      plan(stops, function (r) {
         host.save('route', query);
-        host.result(JSON.stringify({ ok: true, name: place.name, km: Math.round(r.dist / 100) / 10, minutes: Math.round(r.dur / 60), traffic: r.traffic }));
+        host.result(JSON.stringify({ ok: true, name: place.name, km: Math.round(r.dist / 100) / 10, minutes: Math.round(r.dur / 60), traffic: r.traffic,
+          stop: stops.length > 1, then: stops.length > 1 ? stops[stops.length - 1].name : '' }));
       }, function (why) { host.result(JSON.stringify({ ok: false, why: 'route: ' + why, name: place.name })); });
     }, function (why) { host.result(JSON.stringify({ ok: false, why: 'place: ' + why })); });
   }
@@ -554,7 +587,8 @@
           closeFind();
           if (!here) return say('ยังไม่มีสัญญาณ GPS จึงหาเส้นทางไม่ได้', 8);
           say('กำลังหาเส้นทาง…', 0);
-          ways(here, p.at, function (r) { start(r, p.name, p.at); refollow(); host.save('route', p.name); },
+          var place = { at: p.at, name: p.name };
+          plan(route && addStop ? [place].concat(route.stops) : [place], function () { refollow(); host.save('route', p.name); },
             function () { say('หาเส้นทางไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 8); });
         });
       })(list[i]);
@@ -564,7 +598,15 @@
       row(why === 'not found' ? 'ไม่พบสถานที่ ลองพิมพ์ชื่ออื่นหรือเพิ่มชื่อจังหวัด' : 'ค้นหาไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', '', null);
     });
   }
-  $('look').onclick = function () { $('find').style.display = 'block'; $('q').focus(); };
+  var addStop = true;              // with a route already running, a found place is a stop on the way unless the driver says otherwise
+  function howLabel() { $('howStop').className = addStop ? 'on' : ''; $('howNew').className = addStop ? '' : 'on'; }
+  $('howStop').onclick = function () { addStop = true; howLabel(); };
+  $('howNew').onclick = function () { addStop = false; howLabel(); };
+  $('look').onclick = function () { addStop = true; howLabel(); $('how').style.display = route ? 'block' : 'none'; $('find').style.display = 'block'; $('q').focus(); };
+  $('tripName').onclick = function () {                // tap the line that names the next stop to skip it
+    if (!route || route.stops.length < 2) return;
+    plan(route.stops.slice(1));
+  };
   $('qx').onclick = closeFind;
   $('q').addEventListener('input', function () { clearTimeout(typing); typing = setTimeout(look, 600); });
   $('q').addEventListener('keydown', function (e) { if (e.keyCode === 13) { clearTimeout(typing); $('q').blur(); look(); } });

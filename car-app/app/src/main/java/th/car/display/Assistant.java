@@ -276,12 +276,14 @@ final class Assistant {
         try { app.getPackageManager().getPackageInfo(pkg, 0); return true; } catch (PackageManager.NameNotFoundException e) { return false; }
     }
 
-    private String navigate(String destination) {
+    private String navigate(String destination, boolean asStop) {
         if (destination.isEmpty()) return "No destination was given.";
         try {                              // first choice: the map built into this display
-            String answer = car == null ? null : car.guide(destination);
+            String answer = car == null ? null : car.guide((asStop ? "+" : "") + destination);
             if (answer != null) {
                 org.json.JSONObject j = new org.json.JSONObject(answer);
+                if (j.optBoolean("ok") && j.optBoolean("stop")) return "Added as a stop on the way: " + j.optString("name") + ". The route now goes there first and then on to " + j.optString("then")
+                        + ". Whole trip " + j.optDouble("km") + " km, about " + j.optInt("minutes") + " minutes.";
                 if (j.optBoolean("ok")) return "The route is now drawn on the display's own map, with the next turn shown at the top of the map. Destination found: " + j.optString("name")
                         + ". Distance " + j.optDouble("km") + " km, about " + j.optInt("minutes") + " minutes" + (j.optBoolean("traffic") ? " with current traffic" : " without traffic data")
                         + ". The map shows turns but does not speak them. If the place found is not what the driver meant, say so and try a more exact name.";
@@ -348,7 +350,7 @@ final class Assistant {
             NowPlaying.get().press(key);
             return "Sent " + action + " to the phone.";
         }
-        if ("navigate_to".equals(name)) return navigate(input.optString("destination").trim());
+        if ("navigate_to".equals(name)) return navigate(input.optString("destination").trim(), input.optBoolean("as_stop"));
         if ("play_music".equals(name)) return playMusic(input.optString("query").trim());
         if ("open_app".equals(name)) return openApp(input.optString("name").trim());
         if (c == null) return "The display overlay is not running, so this cannot be done right now.";
