@@ -99,6 +99,9 @@ final class Assistant {
         }
     };
 
+    /** Draw the way to a place on the display's map: "lat,lon", "lat,lon|name" or words to search for. The map's JSON answer, or null with no map. Blocking. */
+    String guideTo(String destination) { Car c = car; return c == null ? null : c.guide(destination); }
+
     private void show(final State s, final String line) {
         if (state == State.IDLE && s != State.IDLE) { ui.removeCallbacks(musicBack); if (!hadMusic) hadMusic = Boolean.TRUE.equals(NowPlaying.get().playing); }
         if (s == State.IDLE) { ui.removeCallbacks(musicBack); ui.postDelayed(musicBack, 1500); }

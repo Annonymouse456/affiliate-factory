@@ -101,6 +101,7 @@ public class OverlayService extends Service {
     private TextView mapNote, mapMode;
     private android.os.Messenger mapOut;
     private boolean mapBound, mapSeen, mapGaveUp;
+    private float mapTopPlain, mapTopNote, mapTopSent = -1;
     private int mapDrops;
     private String mapKeySent;
     private final java.util.concurrent.LinkedBlockingQueue<String> mapAnswers = new java.util.concurrent.LinkedBlockingQueue<String>();
@@ -353,29 +354,27 @@ public class OverlayService extends Service {
         final float u = unit, W = screenW, H = screenH;
         final int[] t = theme();
         float column = W * 0.40f;                                   // width of the settings sheet
-        float leftW = W * 0.365f, right = leftW + u * 1.5f;         // left: speed, music, co-pilot. right: camera, clock, map
-        final RectF hole = new RectF(right, u * 3, right + u * 39, u * 25);          // a small camera window above the map
-        mapAt = new RectF(right, u * 27, W - u * 2.5f, H - u * 3);
+        float leftW = W * 0.365f, right = leftW + u * 1.5f;         // left: speed, music, co-pilot. right: a thin line for the time, then the map
+        final RectF hole = new RectF(-200, -200, -100, -100);       // no camera window on the dashboard: the camera key opens the full picture
+        mapTopPlain = u * 11;
+        mapTopNote = u * 27;
+        mapAt = new RectF(right, mapTopPlain, W - u * 2.5f, H - u * 3);
         dash = new Surface(this, hole, u * 3, t);
 
         gauge = new GaugeView(this, t);
         gauge.setLimit(limit);
         place(dash, gauge, (leftW - u * 47) / 2f + u, u, u * 47, u * 47);
 
-        // tap the camera window for the full picture
-        View window = new View(this);
-        window.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
-        place(dash, window, hole.left, hole.top, hole.width(), hole.height());
-
-        // beside the camera: the time and date, replaced by the co-pilot's words while it has something to say
-        float besideL = hole.right + u * 2, besideW = W - u * 2.5f - besideL;
-        clockD = text("--:--", 10.5f, INK, true);
+        // above the map: the time and date on one line; the co-pilot's words take this place, and push the map down, while it has something to say
+        LinearLayout when = new LinearLayout(this);
+        when.setGravity(Gravity.BOTTOM);
+        clockD = text("--:--", 6.2f, INK, true);
         clockD.setIncludeFontPadding(false);
-        clockD.setGravity(Gravity.CENTER_HORIZONTAL);
-        place(dash, clockD, besideL, u * 4.5f, besideW, -1);
-        dateD = text("", 3.1f, INK_DIM, false);
-        dateD.setGravity(Gravity.CENTER_HORIZONTAL);
-        place(dash, dateD, besideL, u * 18.5f, besideW, -1);
+        when.addView(clockD);
+        dateD = text("", 3.3f, INK_DIM, false);
+        dateD.setPadding(unit * 3, 0, 0, Math.round(u * 0.7f));
+        when.addView(dateD);
+        place(dash, when, right + u, u * 2, W - u * 14 - right, u * 8);
         noteD = text("", 2.8f, INK, false);
         noteD.setMaxLines(5);
         noteD.setEllipsize(TextUtils.TruncateAt.END);
@@ -386,7 +385,7 @@ public class OverlayService extends Service {
         noteD.setPadding(unit * 2, unit, unit * 2, unit);
         noteD.setVisibility(View.GONE);
         noteD.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { note(null); } });
-        place(dash, noteD, besideL, hole.top, besideW, hole.height());
+        place(dash, noteD, right, u * 2, W - u * 2.5f - right, mapTopNote - u * 3.5f);
 
         // top right corner: switch between the full 3D map and the light flat one
         mapMode = text(prefs.getBoolean("map3d", true) ? "3D" : "2D", 3f, INK, true);
@@ -399,7 +398,7 @@ public class OverlayService extends Service {
             note(full ? "แผนที่ 3D ตัวเต็ม กำลังเปิด…" : "แผนที่ 2D แบบเบา");
             syncMap();
         } });
-        place(dash, mapMode, W - u * 2.5f - u * 9, hole.top, u * 9, u * 7);
+        place(dash, mapMode, W - u * 2.5f - u * 9, u * 2.5f, u * 9, u * 7);
 
         // the map's place: the map itself is a separate window laid over this, so these words show only until it arrives
         mapNote = text(mapGaveUp ? "แผนที่เปิดไม่ได้บนจอนี้\nส่วนแสดงเว็บของจอหยุดทำงานซ้ำ ๆ" : "กำลังเปิดแผนที่…", 3.2f, INK_DIM, false);
@@ -465,7 +464,7 @@ public class OverlayService extends Service {
         IconView menu = new IconView(this, IconView.MENU, INK, 0x24FFFFFF, false);
         menu.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { settings.setVisibility(settings.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); syncMap(); } });
         place(dash, menu, cardL + cardW - keyW * 2 - gap, top, keyW, tall);
-        IconView full = new IconView(this, IconView.EXPAND, INK, 0x24FFFFFF, false);
+        IconView full = new IconView(this, IconView.CAMERA, INK, 0x24FFFFFF, false);
         full.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { setCameraMode(true); } });
         place(dash, full, cardL + cardW - keyW, top, keyW, tall);
 
@@ -509,7 +508,7 @@ public class OverlayService extends Service {
         phoneKey = option(settings, new Runnable() { @Override public void run() {
             String address = KeyReceiver.localAddress();
             note(address == null ? "จอรถยังไม่ได้ต่อ Wi-Fi ต่อฮอตสปอตของมือถือก่อน"
-                    : "ถามจากมือถือ: เปิด Safari แล้วพิมพ์  " + address + ":" + PhoneAsk.PORT + "  รหัส " + prefs.getString("askCode", ""));
+                    : "ส่งลิงก์แผนที่หรือคำถามจากมือถือ: เปิด Safari แล้วพิมพ์  " + address + ":" + PhoneAsk.PORT + "  รหัส " + prefs.getString("askCode", ""));
             settings.setVisibility(View.GONE);
         } });
         pathKey = option(settings, new Runnable() { @Override public void run() { settings.setVisibility(View.GONE); prefs.edit().putBoolean("pathOn", true).apply(); setCameraMode(true); nudges.setVisibility(View.VISIBLE); } });
@@ -632,13 +631,15 @@ public class OverlayService extends Service {
             b.putBoolean("full", prefs.getBoolean("map3d", true));
             toMap(MapService.CONFIG, b);
         }
-        if (want == mapSeen) return;
+        float top = noteD.getVisibility() == View.VISIBLE ? mapTopNote : mapTopPlain;      // the co-pilot's words sit above the map and push it down
+        if (want == mapSeen && (!want || top == mapTopSent)) return;
         mapSeen = want;
+        mapTopSent = top;
         Bundle b = new Bundle();
         b.putInt("x", Math.round(mapAt.left));
-        b.putInt("y", Math.round(mapAt.top));
+        b.putInt("y", Math.round(top));
         b.putInt("w", Math.round(mapAt.width()));
-        b.putInt("h", Math.round(mapAt.height()));
+        b.putInt("h", Math.round(mapAt.bottom - top));
         b.putFloat("radius", unit * 3f);
         b.putBoolean("visible", want);
         toMap(MapService.PLACE, b);
@@ -801,7 +802,7 @@ public class OverlayService extends Service {
         roadKey.setText("ชื่อถนนและป้ายจากแผนที่:  " + (prefs.getBoolean("roads", true) ? "เปิด" : "ปิด"));
         briefKey.setText("AI รายงานเส้นทางเอง (ใช้โควตา):  " + (prefs.getBoolean("briefing", false) ? "เปิด" : "ปิด"));
         bootKey.setText("เปิดเองเมื่อเปิดจอ:  " + (prefs.getBoolean("autostart", false) ? "เปิด" : "ปิด"));
-        phoneKey.setText("ถามจากมือถือ (ใช้ไมค์มือถือ)  \u25B6");
+        phoneKey.setText("ส่งจากมือถือ: ลิงก์แผนที่ หรือคำถาม  \u25B6");
         pathKey.setText("ปรับแถบเส้นทางบนภาพกล้อง  \u25B6");
     }
 
@@ -813,6 +814,7 @@ public class OverlayService extends Service {
         clockD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         dateD.setVisibility(some ? View.INVISIBLE : View.VISIBLE);
         if (mapMode != null) mapMode.setVisibility(some ? View.INVISIBLE : View.VISIBLE);      // the words need that corner
+        syncMap();
         noteC.setText(some ? line : "");
         noteC.setVisibility(some ? View.VISIBLE : View.GONE);
     }

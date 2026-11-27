@@ -85,6 +85,8 @@ final class PhoneAsk {
         }
         boolean allowed = code.equals(field(form, "c"));
         String question = field(form, "q");
+        String link = field(form, "link");
+        String sent = allowed && !link.isEmpty() ? sendPlace(link) : "";
 
         if (path.startsWith("/ask")) {
             String answer = !allowed ? "รหัสไม่ถูกต้อง" : question.isEmpty() ? "ไม่มีคำถาม" : Assistant.get().askAndWait(question, 100000);
@@ -96,11 +98,36 @@ final class PhoneAsk {
                 + "<style>body{font:17px/1.5 -apple-system,sans-serif;margin:0;padding:20px;background:#0c1114;color:#f1f5f6}h1{font-size:21px;margin:0 0 6px}p{color:#b4c1c4;margin:0 0 14px}"
                 + "textarea,input{width:100%;box-sizing:border-box;font:18px/1.4 inherit;padding:12px;border-radius:12px;border:1px solid #445;background:#151c20;color:#fff}textarea{height:110px}"
                 + "label{display:block;margin:12px 0 5px}button{margin-top:16px;width:100%;padding:16px;font-size:19px;border:0;border-radius:12px;background:#3a93ff;color:#fff}.a{padding:14px;border-radius:12px;background:#1d2a33;margin:0 0 16px}</style>"
-                + "<h1>ถามรถ</h1><p>พิมพ์ หรือแตะไมค์บนแป้นพิมพ์แล้วพูด รถจะตอบเป็นเสียง</p>"
+                + "<h1>ส่งสถานที่ไปที่แผนที่รถ</h1><p>ใน Google Maps บนมือถือ: เปิดสถานที่ แตะ แชร์ แล้วแตะ คัดลอก จากนั้นกลับมาวางในช่องนี้</p>"
+                + (sent.isEmpty() ? "" : "<div class=a>" + sent.replace("&", "&amp;").replace("<", "&lt;") + "</div>")
+                + "<form method=post action='/'>" + (allowed ? "<input type=hidden name=c value='" + code + "'>" : "<label>รหัส 4 หลักจากเมนูบนจอรถ</label><input name=c inputmode=numeric maxlength=4 required>")
+                + "<label>ลิงก์หรือข้อความที่คัดลอกมา</label><textarea name=link required style='height:90px'></textarea><button>นำทางไปที่นี่</button></form>"
+                + "<h1 style='margin-top:34px'>ถามรถ</h1><p>พิมพ์ หรือแตะไมค์บนแป้นพิมพ์แล้วพูด รถจะตอบเป็นเสียง</p>"
                 + (answer.isEmpty() ? "" : "<div class=a>" + answer.replace("&", "&amp;").replace("<", "&lt;") + "</div>")
                 + "<form method=post action='/'>" + (allowed ? "<input type=hidden name=c value='" + code + "'>" : "<label>รหัส 4 หลักจากเมนูบนจอรถ</label><input name=c inputmode=numeric maxlength=4 required>")
-                + "<label>คำถาม</label><textarea name=q required autofocus></textarea><button>ถาม</button></form></html>";
+                + "<label>คำถาม</label><textarea name=q required></textarea><button>ถาม</button></form></html>";
         reply(client, "text/html; charset=utf-8", page);
+    }
+
+    /** A place shared from a maps app on the phone: find where it is and start guiding there on the car's map. Returns words for the phone. */
+    private String sendPlace(String shared) {
+        try {
+            PlaceLink.Place p = PlaceLink.resolve(shared);
+            String name = p.name.replace("|", " ").trim();
+            String ask = p.exact ? String.format(java.util.Locale.US, "%.6f,%.6f", p.lat, p.lon) + (name.isEmpty() ? "" : "|" + name) : name;
+            String answer = Assistant.get().guideTo(ask);
+            if (answer == null) return "แผนที่บนจอรถยังไม่ทำงาน เปิดจอขับขี่ให้แสดงแผนที่ก่อน แล้วส่งอีกครั้ง";
+            org.json.JSONObject j = new org.json.JSONObject(answer);
+            if (j.optBoolean("ok")) return "ส่งแล้ว: " + j.optString("name") + "  ระยะ " + j.optDouble("km") + " กม. ประมาณ " + j.optInt("minutes") + " นาที"
+                    + (p.exact ? "" : "  (ลิงก์ไม่มีพิกัด จึงค้นหาจากชื่อ ตรวจบนจอว่าถูกที่)");
+            String why = j.optString("why");
+            return why.contains("gps") ? "จอรถยังไม่มีสัญญาณ GPS จึงหาเส้นทางไม่ได้ รอสักครู่แล้วส่งอีกครั้ง"
+                    : why.startsWith("place") ? "ค้นหาสถานที่นี้บนแผนที่รถไม่พบ: " + name : "หาเส้นทางไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ";
+        } catch (IllegalStateException e) {
+            return e.getMessage();
+        } catch (Throwable e) {
+            return "เปิดลิงก์ไม่ได้: " + Http.problem(e);
+        }
     }
 
     private static void reply(Socket client, String type, String text) throws Exception {
