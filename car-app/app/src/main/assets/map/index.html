@@ -71,6 +71,17 @@
   #hits div:active { opacity: .7; }
   #say { position: absolute; left: 10px; top: 10px; display: none; padding: 8px 16px; border-radius: 16px; font-size: 19px;
     background: var(--card); color: var(--ink); box-shadow: var(--shade); max-width: 80%; }
+  .cam { width: 30px; height: 30px; margin: -15px 0 0 -15px; }
+  #lanes { position: absolute; left: 10px; top: 106px; display: none; padding: 5px 6px; border-radius: 14px; background: var(--band); box-shadow: var(--shade); white-space: nowrap; }
+  #lanes span { display: inline-block; min-width: 40px; height: 44px; margin: 0 2px; padding: 0 2px; border-radius: 9px; color: rgba(255,255,255,.4); text-align: center; }
+  #lanes span.ok { background: #fff; color: var(--band); }
+  #lanes svg { width: 30px; height: 30px; margin-top: 7px; }
+  #warn { position: absolute; right: 10px; top: 106px; display: none; padding: 8px 14px; border-radius: 14px; background: #d93025; color: #fff; font-size: 20px; font-weight: bold; box-shadow: var(--shade); }
+  #opts { position: absolute; left: 10px; top: 10px; right: 10px; bottom: 10px; display: none; z-index: 3000; overflow-y: auto; border-radius: 18px; background: var(--card); color: var(--ink); box-shadow: var(--shade); }
+  #opts div { padding: 11px 18px; border-bottom: 1px solid var(--line); font-size: 22px; line-height: 28px; }
+  #opts div small { display: block; font-size: 16px; line-height: 20px; color: var(--dim); }
+  #opts div:active { opacity: .7; }
+  #hits { max-height: 360px; overflow-y: auto; }
   #dimmer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: #000; opacity: 0; pointer-events: none; z-index: 5000; }
   #credit { position: absolute; left: 12px; bottom: 1px; font-size: 9px; color: var(--dim); }
   body.nav #credit { display: none; }
@@ -92,6 +103,9 @@
   <div class="key" id="in">+</div>
   <div class="key" id="out">−</div>
 </div>
+<div id="lanes"></div>
+<div id="warn"></div>
+<div id="opts"></div>
 <div id="credit"></div>
 <div id="dimmer"></div>
 
@@ -101,7 +115,8 @@
   var T = 'https://api.tomtom.com';
   var $ = function (id) { return document.getElementById(id); };
   var host = window.Host || { result: function () {}, save: function () {}, fail: function () {}, status: function () {} };
-  if (!host.speak) host.speak = function () {};      // the app; absent when opened in a plain browser
+  if (!host.speak) host.speak = function () {};
+  if (!host.load) host.load = function () { return ''; };      // the app; absent when opened in a plain browser
 
   var key = '', accent = '#35c8ff';
   var headingUp = true, follow = true, autoZoom = true;
@@ -135,6 +150,7 @@
   function pinSvg(last) {
     return '<svg viewBox="0 0 24 24" width="34" height="34"><path d="M12 23s-7-6.5-7-12a7 7 0 0 1 14 0c0 5.5-7 12-7 12z" fill="' + (last ? '#ff4d5e' : '#ffa51f') + '" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="11" r="2.6" fill="#fff"/></svg>';
   }
+  var CAM = '<svg viewBox="0 0 24 24" width="30" height="30"><circle cx="12" cy="12" r="11" fill="#fff" stroke="#d93025" stroke-width="2.4"/><rect x="6" y="9" width="12" height="8" rx="1.6" fill="#14181f"/><circle cx="12" cy="13" r="2.2" fill="#fff"/><rect x="9.5" y="7" width="5" height="2.4" fill="#14181f"/></svg>';
   var troubled = false, fails = 0;
   var spare = false;                     // true while the free map stands in for TomTom's
   function paid() { return key && !spare; }
@@ -182,10 +198,11 @@
     var edge = L.polyline([], { color: look3().edge, weight: 15, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
     var line = L.polyline([], { color: look3().way, weight: 9, opacity: 1, lineCap: 'round', lineJoin: 'round', interactive: false });
     var done = L.polyline([], { color: look3().gone, weight: 9, opacity: 1, interactive: false });
-    var pinsNow = [];
+    var pinsNow = [], marksNow = [];
     var car = L.marker([13.7563, 100.5018], { interactive: false, zIndexOffset: 1000, icon: L.divIcon({ className: 'car', iconSize: null, html: '<i id="arrow"></i>' }) });
     base.on('tileerror', tileFailed);
-    base.on('tileload', tileLoaded);
+    base.on('tileload', function () { tileLoaded(); if (paid()) used('tiles'); });
+    flow.on('tileload', function () { if (paid()) used('tiles'); });
 
     function size() {          // the map is a square as wide as the panel's diagonal, so turning it never shows an empty corner
       var w = window.innerWidth, h = window.innerHeight, s = Math.ceil(Math.sqrt(w * w + h * h)) + 8, spin = $('spin').style;
@@ -237,6 +254,11 @@
         turn();
       },
       jump: function (z) { map.setView(here, z, { animate: false }); turn(); },
+      marks: function (list) {
+        for (var i = 0; i < marksNow.length; i++) marksNow[i].remove();
+        marksNow = [];
+        for (i = 0; i < list.length; i++) marksNow.push(L.marker(list[i].at, { interactive: false, icon: L.divIcon({ className: 'cam', iconSize: null, html: CAM }) }).addTo(map));
+      },
       onDrag: function (cb) { map.on('dragstart', cb); }
     };
   }
@@ -247,7 +269,7 @@
     if (!window.maplibregl || !maplibregl.supported()) throw new Error('no WebGL');
     var spin = $('spin').style;
     spin.width = '100%'; spin.height = '100%'; spin.left = '0'; spin.top = '0'; spin.transition = 'none';
-    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMarks = [], lin = function (t) { return t; };
+    var tilt = 55, buildings = true, routePts = [], donePts = [], carMark = null, pinMarks = [], camMarks = [], lin = function (t) { return t; };
     function style() {
       var urls = [], sub = paid() ? [''] : ['a', 'b', 'c', 'd'];
       for (var i = 0; i < sub.length; i++) urls.push(baseUrl().replace('{s}', sub[i]));
@@ -290,7 +312,11 @@
     }
     m.on('style.load', dress);
     m.on('error', function (e) { if (e && e.sourceId === 'base') tileFailed(); });
-    m.on('data', function (e) { if (e && e.sourceId === 'base' && e.tile) tileLoaded(); });
+    m.on('data', function (e) {
+      if (!e || !e.tile) return;
+      if (e.sourceId === 'base') tileLoaded();
+      if (paid() && (e.sourceId === 'base' || e.sourceId === 'flow')) used('tiles');
+    });
     m.on('move', function () { if (follow && carMark && here) carMark.setLngLat(m.getCenter()); });      // while following, the car is the middle of the picture: keep it glued there between fixes
 
     function camera(z, quick) {
@@ -353,6 +379,15 @@
         if (follow) camera(z, first); else carMark.setLngLat([here[1], here[0]]);
       },
       jump: function (z) { camera(z, true); if (carMark) carMark.setLngLat([here[1], here[0]]); },
+      marks: function (list) {
+        for (var i = 0; i < camMarks.length; i++) camMarks[i].remove();
+        camMarks = [];
+        for (i = 0; i < list.length; i++) {
+          var el = document.createElement('div');
+          el.innerHTML = CAM;
+          camMarks.push(new maplibregl.Marker({ element: el }).setLngLat([list[i].at[1], list[i].at[0]]).addTo(m));
+        }
+      },
       onDrag: function (cb) { m.on('dragstart', function (e) { if (e && e.originalEvent) cb(); }); }
     };
   }
@@ -402,6 +437,10 @@
     kmh = speed < 0 ? 0 : speed;
     if (dir >= 0 && kmh > 5) bearing = dir;                       // a stopped car's compass reading wanders; keep the last good one
     if (first) say('', 0);
+    if (first && !route && saved.trip && saved.trip.stops && saved.trip.stops.length && Date.now() - saved.trip.t < 12 * 3600 * 1000) {
+      var kept = saved.trip.stops;                     // a trip was under way when the display last closed: carry on with it
+      setTimeout(function () { if (!route) plan(kept, null, null, 'resume'); }, 1500);
+    }
     view.show(first, follow && autoZoom ? wantedZoom() : null);
     if (route) progress();
   }
@@ -443,6 +482,7 @@
       }, fail);
     };
     if (!key) return photon();
+    used('calls');
     get(T + '/search/2/search/' + encodeURIComponent(query) + '.json?key=' + key + '&limit=' + most + '&countrySet=TH&language=th-TH&lat=' + near[0] + '&lon=' + near[1], function (j) {
       var out = [], rs = j.results || [];
       for (var i = 0; i < rs.length; i++) {
@@ -487,52 +527,116 @@
     return (TURN[m.modifier] || 'ตรงไป') + road;
   }
 
-  /** A way from here through each of the points in turn; the last one is the destination. */
+  // ---------------------------------------------------------------- what the page remembers between drives (kept by the app)
+
+  var saved = {};
+  try { saved = JSON.parse(host.load('saved') || '{}') || {}; } catch (e) { saved = {}; }
+  if (!saved.favs) saved.favs = [];
+  if (!saved.recents) saved.recents = [];
+  var keepTimer = null;
+  function keep() { try { host.save('saved', JSON.stringify(saved)); } catch (e) { } }
+  function keepSoon() { if (!keepTimer) keepTimer = setTimeout(function () { keepTimer = null; keep(); }, 30000); }
+
+  // How much of TomTom's free daily allowance today's driving has used: map pictures and requests are counted apart.
+  function today() { var d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
+  function used(what) {
+    if (!saved.use || saved.use.day !== today()) saved.use = { day: today(), tiles: 0, calls: 0 };
+    if (what) { saved.use[what]++; keepSoon(); }
+    return saved.use;
+  }
+
+  // ---------------------------------------------------------------- planning a way
+
+  var lanesAsk = true;                   // ask TomTom for lane details; turned off for good if it refuses the question
+
+  function laneList(raw, dirsOf, okOf) {
+    var out = [], some = false, all = true;
+    for (var i = 0; i < raw.length; i++) {
+      var dirs = dirsOf(raw[i]) || [], ok = !!okOf(raw[i]), clean = [];
+      for (var k = 0; k < dirs.length; k++) clean.push(String(dirs[k]).toLowerCase().replace(/_/g, ' '));
+      out.push({ dirs: clean, ok: ok });
+      if (ok) some = true; else all = false;
+    }
+    return some && !all && out.length > 1 ? out : null;         // only worth showing when it tells the driver which lanes NOT to be in
+  }
+
+  /** Ways from here through each of the points in turn; the last one is the destination. ok(best, all): the quickest, and every choice found. */
   function ways(from, via, ok, fail) {
     var chain = function (sep, lonFirst) {           // the points after the start, written the way each service wants them
       var out = '';
       for (var i = 0; i < via.length; i++) out += sep + (lonFirst ? via[i].at[1] + ',' + via[i].at[0] : via[i].at[0] + ',' + via[i].at[1]);
       return out;
     };
-    var finish = function (r) {
-      r.cum = [0];
-      for (var i = 1; i < r.pts.length; i++) r.cum[i] = r.cum[i - 1] + metres(r.pts[i - 1], r.pts[i]);
-      ok(r);
+    var finish = function (list) {
+      for (var n = 0; n < list.length; n++) {
+        var r = list[n];
+        r.cum = [0];
+        for (var i = 1; i < r.pts.length; i++) r.cum[i] = r.cum[i - 1] + metres(r.pts[i - 1], r.pts[i]);
+      }
+      list.sort(function (a, b) { return a.dur - b.dur; });
+      ok(list[0], list);
     };
-    var osrm = function () {
-      get('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + chain(';', true) + '?overview=full&geometries=geojson&steps=true', function (j) {
-        var rt = (j.routes || [])[0];
-        if (!rt) return fail('no route');
-        var steps = [], acc = 0, l, s;
-        for (l = 0; l < rt.legs.length; l++) for (s = 0; s < rt.legs[l].steps.length; s++) {
-          var st = rt.legs[l].steps[s];
-          steps.push({ text: osrmText(st), at: acc, kind: osrmKind(st.maneuver) });
-          acc += st.distance;
+    var choices = via.length === 1;                  // other ways are only offered for a plain A-to-B trip
+    var osrm = function (noToll) {
+      get('https://router.project-osrm.org/route/v1/driving/' + from[1] + ',' + from[0] + chain(';', true) + '?overview=full&geometries=geojson&steps=true'
+          + (choices ? '&alternatives=2' : '') + (noToll ? '&exclude=toll' : ''), function (j) {
+        var list = [], rs = j.routes || [];
+        for (var n = 0; n < rs.length; n++) {
+          var rt = rs[n], steps = [], acc = 0, l, s, toll = false;
+          for (l = 0; l < rt.legs.length; l++) for (s = 0; s < rt.legs[l].steps.length; s++) {
+            var st = rt.legs[l].steps[s], xs = st.intersections || [], step = { text: osrmText(st), at: acc, kind: osrmKind(st.maneuver) };
+            if (xs[0] && xs[0].lanes && st.maneuver.type !== 'depart') step.lanes = laneList(xs[0].lanes, function (x) { return x.indications; }, function (x) { return x.valid; });
+            for (var x = 0; x < xs.length; x++) if ((xs[x].classes || []).indexOf('toll') >= 0) toll = true;
+            steps.push(step);
+            acc += st.distance;
+          }
+          var pts = [], c = rt.geometry.coordinates;
+          for (var i = 0; i < c.length; i++) pts.push([c[i][1], c[i][0]]);
+          var ends = [], run = 0;
+          for (l = 0; l < rt.legs.length; l++) { run += rt.legs[l].distance; ends.push(run); }
+          list.push({ traffic: false, dist: rt.distance, dur: rt.duration, pts: pts, steps: steps, ends: ends, toll: toll });
         }
-        var pts = [], c = rt.geometry.coordinates;
-        for (var i = 0; i < c.length; i++) pts.push([c[i][1], c[i][0]]);
-        var ends = [], run = 0;
-        for (l = 0; l < rt.legs.length; l++) { run += rt.legs[l].distance; ends.push(run); }
-        finish({ traffic: false, dist: rt.distance, dur: rt.duration, pts: pts, steps: steps, ends: ends });
-      }, fail);
+        if (!list.length) return fail('no route');
+        finish(list);
+      }, function (why) { if (noToll) osrm(false); else fail(why); });      // the free router may not know how to leave toll roads out: then take any way
     };
-    if (!key) return osrm();
-    get(T + '/routing/1/calculateRoute/' + from[0] + ',' + from[1] + chain(':', false) + '/json?key=' + key + '&traffic=true&travelMode=car&instructionsType=text&language=th-TH', function (j) {
-      var rt = (j.routes || [])[0];
-      if (!rt) return osrm();
-      var pts = [], l, i, ins = (rt.guidance || {}).instructions || [], steps = [];
-      for (l = 0; l < rt.legs.length; l++) for (i = 0; i < rt.legs[l].points.length; i++) pts.push([rt.legs[l].points[i].latitude, rt.legs[l].points[i].longitude]);
-      for (i = 0; i < ins.length; i++) steps.push({ text: ins[i].message, at: ins[i].routeOffsetInMeters, kind: tomtomKind(ins[i].maneuver) });
-      var ends = [], run = 0;
-      for (l = 0; l < rt.legs.length; l++) { run += (rt.legs[l].summary || {}).lengthInMeters || 0; ends.push(run); }
-      finish({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps, ends: ends });
-    }, osrm);                       // key refused or quota used up: fall back to the free router
+    if (!key) return osrm(!!saved.noToll);
+    var tomtom = function (lanes) {
+      used('calls');
+      get(T + '/routing/1/calculateRoute/' + from[0] + ',' + from[1] + chain(':', false) + '/json?key=' + key + '&traffic=true&travelMode=car&instructionsType=text&language=th-TH&sectionType=tollRoad'
+          + (lanes ? '&sectionType=lanes' : '') + (choices ? '&maxAlternatives=2' : '') + (saved.noToll ? '&avoid=tollRoads' : ''), function (j) {
+        var list = [], rs = j.routes || [];
+        for (var n = 0; n < rs.length; n++) {
+          var rt = rs[n], pts = [], l, i, ins = (rt.guidance || {}).instructions || [], steps = [], secs = rt.sections || [], toll = false;
+          for (l = 0; l < rt.legs.length; l++) for (i = 0; i < rt.legs[l].points.length; i++) pts.push([rt.legs[l].points[i].latitude, rt.legs[l].points[i].longitude]);
+          for (i = 0; i < ins.length; i++) steps.push({ text: ins[i].message, at: ins[i].routeOffsetInMeters, kind: tomtomKind(ins[i].maneuver), point: ins[i].pointIndex });
+          for (i = 0; i < secs.length; i++) {
+            var sec = secs[i], type = String(sec.sectionType || '');
+            if (type.indexOf('TOLL') >= 0) toll = true;
+            if (type !== 'LANES' || !sec.lanes) continue;
+            for (var k = 0; k < steps.length; k++) {      // lane details belong to the first turn at or just after the stretch they cover
+              if (steps[k].point == null || steps[k].point < sec.startPointIndex) continue;
+              if (steps[k].point <= sec.endPointIndex + 3 && !steps[k].lanes) steps[k].lanes = laneList(sec.lanes, function (x) { return x.directions; }, function (x) { return x.follow; });
+              break;
+            }
+          }
+          var ends = [], run = 0;
+          for (l = 0; l < rt.legs.length; l++) { run += (rt.legs[l].summary || {}).lengthInMeters || 0; ends.push(run); }
+          list.push({ traffic: true, dist: rt.summary.lengthInMeters, dur: rt.summary.travelTimeInSeconds, pts: pts, steps: steps, ends: ends, toll: toll });
+        }
+        if (!list.length) return osrm(!!saved.noToll);
+        finish(list);
+      }, function (why) {
+        if (lanes && why === 'http 400') { lanesAsk = false; tomtom(false); }      // the lane question was refused: ask again without it, and do not ask it again
+        else osrm(!!saved.noToll);                                                  // key refused or allowance spent: fall back to the free router
+      });
+    };
+    tomtom(lanesAsk);
   }
 
   function far(m) { return m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + ' กม.' : Math.max(10, Math.round(m / 10) * 10) + ' ม.'; }
   function lasting(s) { var m = Math.max(1, Math.round(s / 60)); return m >= 60 ? Math.floor(m / 60) + ' ชม. ' + (m % 60) + ' นาที' : m + ' นาที'; }
 
-  /** Begin guiding along a planned way. stops: the places to pass in order, each { at, name }; the last is the destination. */
   // ---------------------------------------------------------------- spoken turn instructions
 
   var voiceOn = true, spoken = { id: -1, from: 0, done: {} };
@@ -561,34 +665,118 @@
     for (var i = 0; i < marks.length; i++) {
       var m = marks[i];
       if (d > m) continue;
-      if (!spoken.done[m] && spoken.from > m + 150) speak('อีก ' + farWords(m) + ' ' + next.text);
+      if (!spoken.done[m] && spoken.from > m + 150) speak('อีก ' + farWords(m) + ' ' + next.text + (m <= 700 ? laneWords(next.lanes) : ''));
       for (var j = i; j < marks.length; j++) spoken.done[marks[j]] = 1;       // this distance and every longer one is now behind us
       return;
     }
   }
 
-  function start(r, stops, again) {
+  /** how = 'again': re-planned after leaving the route. 'resume': carried over from before the engine was switched off. 'pick': another of the offered ways. */
+  function start(r, stops, how, all) {
     var last = stops[stops.length - 1];
     route = r; route.stops = stops; route.name = last.name; route.to = last.at;
+    if (all) route.all = all;
     at = 0; along = 0; off = 0;
     view.route(r.pts);
     view.gone([]);
     view.pins(stops);
+    view.marks([]);
     $('say').style.display = 'none';
     $('trip').style.display = 'block';
     $('turn').style.display = 'block';
+    $('warn').style.display = 'none';
     skin();
     spoken = { id: -1, from: 0, done: {} };
-    if (again) speak('เปลี่ยนเส้นทางใหม่แล้ว');
-    else speak((stops.length > 1 ? 'เริ่มนำทาง แวะ ' + stops[0].name + ' แล้วไป ' : 'เริ่มนำทางไป ') + last.name + ' ระยะทาง ' + farWords(r.dist) + ' ใช้เวลาประมาณ ' + lasting(r.dur));
+    saved.trip = { stops: stops, t: Date.now() };              // so the trip carries on after a stop for fuel
+    if (!how) remember(last);
+    keep();
+    if (how === 'again') speak('เปลี่ยนเส้นทางใหม่แล้ว');
+    else if (how === 'resume') speak('นำทางต่อไป ' + last.name + ' อีก ' + farWords(r.dist));
+    else if (how === 'pick') speak('ใช้เส้นทางนี้ ระยะทาง ' + farWords(r.dist) + ' ใช้เวลาประมาณ ' + lasting(r.dur));
+    else speak((stops.length > 1 ? 'เริ่มนำทาง แวะ ' + stops[0].name + ' แล้วไป ' : 'เริ่มนำทางไป ') + last.name + ' ระยะทาง ' + farWords(r.dist) + ' ใช้เวลาประมาณ ' + lasting(r.dur)
+      + (r.toll ? ' เส้นทางนี้มีค่าผ่านทาง' : ''));
+    cameras(r);
     progress();
   }
 
-  function plan(stops, ok, fail) { ways(here, stops, function (r) { start(r, stops); if (ok) ok(r); }, fail || function () { }); }
+  function plan(stops, ok, fail, how) { ways(here, stops, function (r, all) { start(r, stops, how, all); if (ok) ok(r); }, fail || function () { }); }
+
+  function remember(place) {             // the last few places guided to, newest first
+    var list = [{ at: place.at, name: place.name }];
+    for (var i = 0; i < saved.recents.length && list.length < 8; i++) if (saved.recents[i].name !== place.name) list.push(saved.recents[i]);
+    saved.recents = list;
+  }
+
+  // ---------------------------------------------------------------- speed cameras on the way (from OpenStreetMap; only those someone has mapped)
+
+  function cameras(r) {
+    var pick = [], step = Math.max(1, Math.floor(r.pts.length / 110)), q = '';
+    for (var i = 0; i < r.pts.length; i += step) pick.push(r.pts[i]);
+    pick.push(r.pts[r.pts.length - 1]);
+    for (i = 0; i < pick.length; i++) q += (i ? ',' : '') + pick[i][0].toFixed(5) + ',' + pick[i][1].toFixed(5);
+    get('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent('[out:json][timeout:20];node(around:60,' + q + ')[highway=speed_camera];out;'), function (j) {
+      if (route !== r) return;
+      var cams = [], els = j.elements || [];
+      for (var n = 0; n < els.length; n++) {
+        var p = [els[n].lat, els[n].lon], best = 1e9, where = 0, cos = Math.cos(p[0] * Math.PI / 180);
+        for (var k = 0; k < r.pts.length - 1; k++) {          // how far along the route this camera stands
+          var a = r.pts[k], b = r.pts[k + 1], bx = (b[1] - a[1]) * cos, by = b[0] - a[0], px = (p[1] - a[1]) * cos, py = p[0] - a[0], len = bx * bx + by * by;
+          var t = len ? Math.max(0, Math.min(1, (px * bx + py * by) / len)) : 0, d = metres(p, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+          if (d < best) { best = d; where = r.cum[k] + (r.cum[k + 1] - r.cum[k]) * t; }
+        }
+        if (best < 70) cams.push({ at: p, along: where, limit: (els[n].tags || {}).maxspeed || '' });
+      }
+      cams.sort(function (x, y) { return x.along - y.along; });
+      r.cams = cams;
+      view.marks(cams);
+    }, function () { });               // the camera list is a nicety from a slow public service: carry on without it
+  }
+
+  function watchCameras(gone) {
+    var cams = route.cams || [], near = null;
+    for (var i = 0; i < cams.length; i++) if (cams[i].along > gone - 30) { near = cams[i]; break; }
+    var d = near ? near.along - gone : 1e9;
+    if (!near || d > 700) { $('warn').style.display = 'none'; return; }
+    $('warn').style.display = 'block';
+    $('warn').textContent = 'กล้องจับความเร็ว ' + far(Math.max(0, d)) + (near.limit ? '  ·  จำกัด ' + near.limit : '');
+    if (!near.told) { near.told = true; speak('ข้างหน้ามีกล้องจับความเร็ว อีก ' + farWords(d) + (near.limit ? ' จำกัดความเร็ว ' + near.limit : '')); }
+  }
+
+  // ---------------------------------------------------------------- lanes at the coming turn
+
+  var TILT = { 'left': -90, 'slight left': -45, 'sharp left': -135, 'straight': 0, 'through': 0, 'none': 0, 'slight right': 45, 'right': 90, 'sharp right': 135,
+    'uturn': 180, 'left u turn': 180, 'right u turn': 180, 'merge to left': -30, 'merge to right': 30 };
+  function showLanes(lanes, d) {
+    var box = $('lanes');
+    if (!lanes || d > 900) { box.style.display = 'none'; return; }
+    var html = '';
+    for (var i = 0; i < lanes.length; i++) {
+      var inner = '', dirs = lanes[i].dirs.length ? lanes[i].dirs : ['straight'];
+      for (var k = 0; k < dirs.length && k < 2; k++) {
+        var turn = TILT[dirs[k]] == null ? 0 : TILT[dirs[k]];
+        inner += '<svg viewBox="0 0 24 24" style="transform:rotate(' + turn + 'deg);-webkit-transform:rotate(' + turn + 'deg)"><path d="M12 21V5M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      }
+      html += '<span class="' + (lanes[i].ok ? 'ok' : '') + '">' + inner + '</span>';
+    }
+    box.innerHTML = html;
+    box.style.display = 'block';
+  }
+  /** "keep left" and the like, when the lanes to use are all on one side. */
+  function laneWords(lanes) {
+    if (!lanes) return '';
+    var first = -1, last = -1, n = lanes.length;
+    for (var i = 0; i < n; i++) if (lanes[i].ok) { if (first < 0) first = i; last = i; }
+    if (first < 0) return '';
+    if (last < n / 2) return ' ชิดเลนซ้าย';
+    if (first >= n / 2) return ' ชิดเลนขวา';
+    return first > 0 && last < n - 1 ? ' ใช้เลนกลาง' : '';
+  }
 
   function clear(quiet) {
     route = null;
-    view.route(null); view.pins([]);
+    view.route(null); view.pins([]); view.marks([]);
+    $('warn').style.display = 'none'; $('lanes').style.display = 'none'; closeOpts();
+    if (!quiet) { delete saved.trip; keep(); }
     skin();
     $('trip').style.display = 'none';
     $('turn').style.display = 'none';
@@ -611,13 +799,13 @@
     var gone = route.cum[at] + (route.cum[at + 1] - route.cum[at]) * along || 0, left = route.dist - gone;
     if (off >= 6 && Date.now() - lastReroute > 20000) {            // left the route for a few seconds: plan again from here
       lastReroute = Date.now(); off = 0;
-      var keep = route.stops;
-      ways(here, keep, function (r) { if (route) start(r, keep, true); }, function () { });
+      var held = route.stops;
+      ways(here, held, function (r, all) { if (route) start(r, held, 'again', all); }, function () { });
       return;
     }
     if (left < 45 && metres(here, route.to) < 80) { clear(false); say('ถึงจุดหมายแล้ว', 10); speak('ถึงจุดหมายแล้ว'); return; }
     // a stop is reached when the car comes to the point on the route nearest to it; it then drops off the list and the way carries on
-    while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { speak('ถึงจุดแวะ ' + route.stops[0].name + ' แล้ว'); route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); }
+    while (route.stops.length > 1 && route.ends && route.ends.length > 1 && gone > route.ends[0] - 45) { speak('ถึงจุดแวะ ' + route.stops[0].name + ' แล้ว'); route.stops = route.stops.slice(1); route.ends = route.ends.slice(1); view.pins(route.stops); saved.trip = { stops: route.stops, t: Date.now() }; keep(); }
     $('tripName').textContent = route.stops.length > 1
       ? 'แวะ ' + route.stops[0].name + ' อีก ' + far(Math.max(0, (route.ends ? route.ends[0] : 0) - gone)) + (route.stops.length > 2 ? '  (+' + (route.stops.length - 2) + ' จุด)' : '') + '  →  ' + route.name
       : route.name;
@@ -631,16 +819,28 @@
     $('turnIcon').innerHTML = icon(next.kind);
     $('turnFar').textContent = far(next.at - gone);
     $('turnText').textContent = next.text;
+    showLanes(next.lanes, next.at - gone);
     announce(next, next.at - gone);
+    watchCameras(gone);
   }
 
   /** Called by the app when the co-pilot is asked to guide somewhere. Answers through Host.result. */
+  /** A place the driver has saved, asked for by what it is called: "บ้าน", "ที่ทำงาน", or a favourite's name. */
+  function savedPlace(words) {
+    var w = String(words).replace(/^\s+|\s+$/g, '').toLowerCase();
+    if (saved.home && /^(กลับ)?บ้าน$|^home$/.test(w)) return saved.home;
+    if (saved.work && /^ที่ทำงาน$|^ออฟฟิศ$|^work$|^office$/.test(w)) return saved.work;
+    for (var i = 0; i < saved.favs.length; i++) if (saved.favs[i].name.toLowerCase() === w) return saved.favs[i];
+    return null;
+  }
+
   function go(query) {
     if (!here) return host.result(JSON.stringify({ ok: false, why: 'no gps' }));
     var asStop = query.charAt(0) === '+';
     if (asStop) query = query.substring(1);
     var exact = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*(?:\|(.*))?$/.exec(query);        // "latitude,longitude" or "latitude,longitude|name": no search needed
-    (exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: exact[3] || 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
+    var known = savedPlace(query);
+    (known ? function (q, ok) { ok(known); } : exact ? function (q, ok) { ok({ at: [parseFloat(exact[1]), parseFloat(exact[2])], name: exact[3] || 'จุดหมายที่เลือก' }); } : find)(query, function (place) {
       var stops = asStop && route ? [place].concat(route.stops) : [place];
       plan(stops, function (r) {
         host.save('route', query);
@@ -664,28 +864,42 @@
   // the search box: type a place, pick one of the results, and the way there is drawn
   var typing = null, asked = 0;
   function closeFind() { $('find').style.display = 'none'; $('q').blur(); $('q').value = ''; $('hits').innerHTML = ''; }
-  function row(text, sub, tap) {
+  function row(text, sub, tap, into) {
     var d = document.createElement('div');
     d.appendChild(document.createTextNode(text));
     if (sub) { var sm = document.createElement('small'); sm.appendChild(document.createTextNode(sub)); d.appendChild(sm); }
     if (tap) d.onclick = tap;
-    $('hits').appendChild(d);
+    (into || $('hits')).appendChild(d);
+  }
+  /** Guide to a chosen place: as a stop on the present trip, or as the destination. */
+  function choose(p) {
+    closeFind();
+    if (!here) return say('ยังไม่มีสัญญาณ GPS จึงหาเส้นทางไม่ได้', 8);
+    say('กำลังหาเส้นทาง…', 0);
+    var place = { at: p.at, name: p.name };
+    plan(route && addStop ? [place].concat(route.stops) : [place], function () { refollow(); },
+      function () { say('หาเส้นทางไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 8); });
+  }
+  function awayFrom(p) { return here ? far(metres(here, p.at)) : ''; }
+  /** Before anything is typed: home, work, favourites and the last few places. */
+  function showHome() {
+    $('hits').innerHTML = '';
+    var none = 'ยังไม่ได้ตั้ง: นำทางไปที่นั่นสักครั้ง แล้วแตะแถบเวลาด้านล่างเพื่อบันทึก';
+    row('บ้าน', saved.home ? saved.home.name + '  ·  ' + awayFrom(saved.home) : none, saved.home ? function () { choose(saved.home); } : null);
+    row('ที่ทำงาน', saved.work ? saved.work.name + '  ·  ' + awayFrom(saved.work) : none, saved.work ? function () { choose(saved.work); } : null);
+    var i;
+    for (i = 0; i < saved.favs.length; i++) (function (p) { row('★ ' + p.name, awayFrom(p), function () { choose(p); }); })(saved.favs[i]);
+    for (i = 0; i < saved.recents.length && i < 5; i++) (function (p) { row(p.name, 'เคยไป  ·  ' + awayFrom(p), function () { choose(p); }); })(saved.recents[i]);
+    row('ตัวเลือกเส้นทาง', 'เลี่ยงค่าผ่านทาง · เส้นทางอื่น · การใช้โควตาวันนี้', function () { closeFind(); openOpts(); });
   }
   function look() {
     var q = $('q').value.replace(/^\s+|\s+$/g, ''), mine = ++asked;
-    if (q.length < 2) { $('hits').innerHTML = ''; return; }
+    if (q.length < 2) { showHome(); return; }
     places(q, 5, function (list) {
       if (mine !== asked) return;                      // newer typing has replaced this search
       $('hits').innerHTML = '';
       for (var i = 0; i < list.length; i++) (function (p) {
-        row(p.name, (here ? far(metres(here, p.at)) + (p.sub ? ' · ' : '') : '') + p.sub, function () {
-          closeFind();
-          if (!here) return say('ยังไม่มีสัญญาณ GPS จึงหาเส้นทางไม่ได้', 8);
-          say('กำลังหาเส้นทาง…', 0);
-          var place = { at: p.at, name: p.name };
-          plan(route && addStop ? [place].concat(route.stops) : [place], function () { refollow(); host.save('route', p.name); },
-            function () { say('หาเส้นทางไม่ได้ ตรวจอินเทอร์เน็ตของจอรถ', 8); });
-        });
+        row(p.name, (here ? far(metres(here, p.at)) + (p.sub ? ' · ' : '') : '') + p.sub, function () { choose(p); });
       })(list[i]);
     }, function (why) {
       if (mine !== asked) return;
@@ -697,11 +911,46 @@
   function howLabel() { $('howStop').className = addStop ? 'on' : ''; $('howNew').className = addStop ? '' : 'on'; }
   $('howStop').onclick = function () { addStop = true; howLabel(); };
   $('howNew').onclick = function () { addStop = false; howLabel(); };
-  $('look').onclick = function () { addStop = true; howLabel(); $('how').style.display = route ? 'block' : 'none'; $('find').style.display = 'block'; $('q').focus(); };
-  $('tripName').onclick = function () {                // tap the line that names the next stop to skip it
-    if (!route || route.stops.length < 2) return;
-    plan(route.stops.slice(1));
-  };
+  $('look').onclick = function () { addStop = true; howLabel(); $('how').style.display = route ? 'block' : 'none'; $('find').style.display = 'block'; showHome(); };
+
+  // ---------------------------------------------------------------- the trip's options: other ways, toll roads, stops, saving the place
+
+  function closeOpts() { $('opts').style.display = 'none'; }
+  function openOpts() {
+    var box = $('opts'), i;
+    box.innerHTML = '';
+    var add = function (text, sub, tap) { row(text, sub, tap ? function () { closeOpts(); tap(); } : null, box); };
+    if (route && route.all && route.all.length > 1 && route.stops.length === 1) {
+      for (i = 0; i < route.all.length; i++) (function (r, n) {
+        add((r === route ? '● ' : '○ ') + lasting(r.dur) + '  ·  ' + far(r.dist), (n === 0 ? 'เร็วที่สุด' : 'ทางเลือก ' + n) + (r.toll ? '  ·  มีค่าผ่านทาง' : '  ·  ไม่มีค่าผ่านทาง') + (r === route ? '  ·  กำลังใช้' : ''),
+          r === route ? null : function () { start(r, route.stops, 'pick', route.all); });
+      })(route.all[i], i);
+    }
+    add('เลี่ยงทางด่วนและค่าผ่านทาง:  ' + (saved.noToll ? 'เปิด' : 'ปิด'), 'แตะเพื่อเปลี่ยน' + (route ? ' แล้วหาเส้นทางใหม่' : ''), function () {
+      saved.noToll = !saved.noToll; keep();
+      if (route && here) plan(route.stops, null, null, 'again');
+    });
+    if (route && route.stops.length > 1) add('ข้ามจุดแวะ: ' + route.stops[0].name, 'ไปจุดถัดไปเลย', function () { plan(route.stops.slice(1), null, null, 'again'); });
+    if (route) {
+      var dest = { at: route.to, name: route.name };
+      add('บันทึกจุดหมายนี้เป็น บ้าน', saved.home ? 'ตอนนี้: ' + saved.home.name : '', function () { saved.home = dest; keep(); say('บันทึกเป็นบ้านแล้ว', 4); });
+      add('บันทึกจุดหมายนี้เป็น ที่ทำงาน', saved.work ? 'ตอนนี้: ' + saved.work.name : '', function () { saved.work = dest; keep(); say('บันทึกเป็นที่ทำงานแล้ว', 4); });
+      var isFav = false;
+      for (i = 0; i < saved.favs.length; i++) if (saved.favs[i].name === dest.name) isFav = true;
+      add(isFav ? 'เอาออกจากรายการโปรด' : 'เพิ่มในรายการโปรด', dest.name, function () {
+        var list = [];
+        for (var k = 0; k < saved.favs.length; k++) if (saved.favs[k].name !== dest.name) list.push(saved.favs[k]);
+        if (!isFav) list.unshift(dest);
+        saved.favs = list.slice(0, 8); keep();
+      });
+    }
+    var u = used();
+    add(key ? 'TomTom วันนี้: ภาพแผนที่ประมาณ ' + u.tiles + '  ·  ค้นหาและเส้นทาง ' + u.calls + ' ครั้ง' : 'ยังไม่ได้ใส่คีย์ TomTom',
+      key ? 'โควตาฟรีต่อวันอยู่ราว 50,000 ภาพ และ 2,500 ครั้ง (ตัวเลขของ TomTom อาจเปลี่ยน ตรวจที่เว็บของเขา)' : 'ไม่มีจราจร และค้นหาชื่อไทยได้น้อยลง', null);
+    add('ปิด', '', function () { });
+    box.style.display = 'block';
+  }
+  $('tripMain').onclick = $('tripSub').onclick = $('tripName').onclick = openOpts;
   $('qx').onclick = closeFind;
   $('q').addEventListener('input', function () { clearTimeout(typing); typing = setTimeout(look, 600); });
   $('q').addEventListener('keydown', function (e) { if (e.keyCode === 13) { clearTimeout(typing); $('q').blur(); look(); } });
