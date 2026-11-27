@@ -965,8 +965,10 @@ function getProv(){ try{return localStorage.getItem(PROV_K)||"gemini";}catch(_){
 function setProv(p){ try{localStorage.setItem(PROV_K,p);}catch(_){} }
 function splitDataURL(d){ const m=/^data:([^;]+);base64,(.*)$/s.exec(d); return m?{mime:m[1],b64:m[2]}:{mime:"image/png",b64:d}; }
 function b64ToBlob(b64,mime){ const bin=atob(b64),a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++)a[i]=bin.charCodeAt(i); return new Blob([a],{type:mime||"image/png"}); }
+function detectProv(k){ if(/^sk-/i.test(k))return "openai"; if(/^AIza/.test(k))return "gemini"; return null; }
 async function callDirect(op,image,prompt){
-  return getProv()==="openai" ? openaiDirect(getKey(),image,prompt) : geminiDirect(getKey(),image,prompt);
+  const key=getKey(); const prov=detectProv(key)||getProv();
+  return prov==="openai" ? openaiDirect(key,image,prompt) : geminiDirect(key,image,prompt);
 }
 async function geminiDirect(key,image,prompt){
   const img=splitDataURL(image);
@@ -1026,7 +1028,7 @@ function panelAI(){
   const kr=document.createElement("div");kr.style.cssText="display:flex;gap:8px;margin-top:8px";
   kr.innerHTML=`<input class="aiInput" id="aiKey" type="password" autocomplete="off" placeholder="วาง ${prov==="openai"?"OpenAI":"Gemini"} API Key ที่นี่" value="${key.replace(/"/g,"&quot;")}">`;
   const ks=document.createElement("button");ks.className="chip";ks.textContent=key?"✓ 💾":"💾";ks.title="บันทึกคีย์";
-  ks.onclick=()=>{ setKey($("#aiKey").value.trim()); aiToast("บันทึกคีย์แล้ว (เก็บในเครื่องคุณเท่านั้น)"); refreshPanel(); };
+  ks.onclick=()=>{ const k=$("#aiKey").value.trim(); setKey(k); const d=detectProv(k); if(d)setProv(d); aiToast(d?("บันทึกแล้ว · ตรวจพบ "+(d==="openai"?"OpenAI":"Gemini")+" อัตโนมัติ"):"บันทึกคีย์แล้ว (เก็บในเครื่องคุณ)"); refreshPanel(); };
   kr.appendChild(ks);panel.appendChild(kr);
 
   const g=document.createElement("div");g.className="chips";g.style.marginTop="10px";
@@ -1044,9 +1046,10 @@ function panelAI(){
   pr.appendChild(pb);panel.appendChild(pr);
 
   const n=document.createElement("p");n.className="note";
+  const curProv=detectProv(key)||prov;
   n.innerHTML = key
-    ? "คีย์เก็บในเครื่องคุณเท่านั้น · สั่งอะไรก็ได้ด้วยข้อความ · ⚠️ ต้องเปิดแอปบน <b>เว็บจริง</b> (เช่น GitHub Pages) — ในหน้าตัวอย่าง claude.ai นี้เรียก AI ไม่ได้ (ถูกบล็อก)"
-    : `วาง API Key แล้วกด 💾 → ใช้ได้เลย (คีย์อยู่ในเครื่องคุณ ไม่ถูกส่งให้ใคร) · เอาคีย์ Gemini ฟรีได้ที่ aistudio.google.com`;
+    ? `กำลังใช้: <b>${curProv==="openai"?"OpenAI":"Gemini"}</b> (ตรวจจากคีย์อัตโนมัติ) · สั่งอะไรก็ได้ด้วยข้อความ · ⚠️ ต้องเปิดบน <b>เว็บจริง</b> — ในหน้าตัวอย่าง claude.ai นี้เรียก AI ไม่ได้`
+    : `วาง API Key แล้วกด 💾 → ระบบจะรู้เองว่าเป็น Gemini (ขึ้นต้น AIza) หรือ OpenAI (ขึ้นต้น sk-) · คีย์อยู่ในเครื่องคุณ ไม่ส่งให้ใคร`;
   panel.appendChild(n);
 
   // advanced: worker url
