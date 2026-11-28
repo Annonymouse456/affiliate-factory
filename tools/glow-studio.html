@@ -53,7 +53,12 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 .ov .del{position:absolute;width:26px;height:26px;border-radius:50%;background:#e23;left:-13px;top:-13px;display:none;place-items:center;color:#fff;font-size:14px;cursor:pointer;border:2px solid #fff}
 .ov.sel .handle,.ov.sel .del{display:grid}
 #emptyHint{position:absolute;inset:auto 0 12px 0;text-align:center;color:var(--muted);font-size:.78rem;pointer-events:none}
-#btnFull{position:absolute;top:10px;right:10px;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(22,25,34,.72);color:var(--fg);font-size:1.05rem;cursor:pointer;z-index:6;display:grid;place-items:center;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+#btnFull,#btnCmp{position:absolute;top:10px;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:rgba(22,25,34,.72);color:var(--fg);font-size:1.05rem;cursor:pointer;z-index:6;display:grid;place-items:center;-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+#btnFull{right:10px}
+#btnCmp{left:10px;touch-action:none;user-select:none;-webkit-user-select:none}
+#btnCmp.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#cmpImg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:5;pointer-events:none;border-radius:inherit}
+#cmpLabel{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.6);color:#fff;font-size:.72rem;padding:4px 12px;border-radius:999px;z-index:6;pointer-events:none}
 
 /* crop box */
 #cropBox{position:absolute;border:1px solid rgba(255,255,255,.9);box-shadow:0 0 0 4000px rgba(0,0,0,.45);touch-action:none;cursor:move}
@@ -149,9 +154,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
         <div class="ch nw" data-c="nw"></div><div class="ch ne" data-c="ne"></div>
         <div class="ch sw" data-c="sw"></div><div class="ch se" data-c="se"></div>
       </div>
+      <img id="cmpImg" hidden alt="">
+      <div id="cmpLabel" hidden>ต้นฉบับ (ก่อนแต่ง)</div>
     </div>
     <div id="emptyHint">แตะ “รูป” เพื่อเลือกภาพของคุณ · ตอนนี้เป็นภาพตัวอย่าง</div>
     <button id="btnFull" title="เต็มจอ">⤢</button>
+    <button id="btnCmp" title="กดค้างดูต้นฉบับ">👁</button>
   </main>
 
   <section id="panel"></section>
@@ -174,6 +182,7 @@ const S = {
   frame:"none",
   overlays:[],         // {id,type,content,font,color,size,x,y,scale,rot,el}
   baseSrc:null,        // data URL of current (baked) base image
+  originalSrc:null,    // data URL of the originally imported image (for before/after)
   natW:0,natH:0,       // natural dims of base image
   tab:"filter",
   doodle:{color:"#ff5c8a",size:8,erase:false}
@@ -645,7 +654,7 @@ $("#btnImport").onclick=()=>$("#file").click();
 $("#file").onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader();
   rd.onload=async()=>{ await setNewImage(rd.result,true); }; rd.readAsDataURL(f); e.target.value=""; };
 async function setNewImage(src,user){
-  S.baseSrc=src; await loadImg(src);
+  S.baseSrc=src; S.originalSrc=src; await loadImg(src);
   // reset everything for a fresh photo
   S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};
   S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.filterStrength=1; S.frame="none";
@@ -1116,6 +1125,16 @@ btnFull.onclick=async()=>{
 };
 document.addEventListener("fullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
 document.addEventListener("webkitfullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
+
+/* ========== BEFORE / AFTER (press & hold) ========== */
+const btnCmp=$("#btnCmp"), cmpImg=$("#cmpImg"), cmpLabel=$("#cmpLabel");
+function cmpShow(on){
+  if(on && S.originalSrc){ cmpImg.src=S.originalSrc; cmpImg.hidden=false; cmpLabel.hidden=false; btnCmp.classList.add("on"); }
+  else { cmpImg.hidden=true; cmpLabel.hidden=true; btnCmp.classList.remove("on"); }
+}
+btnCmp.addEventListener("pointerdown",e=>{ e.preventDefault(); try{btnCmp.setPointerCapture(e.pointerId);}catch(_){ } cmpShow(true); });
+["pointerup","pointercancel","pointerleave"].forEach(ev=>btnCmp.addEventListener(ev,()=>cmpShow(false)));
+btnCmp.addEventListener("contextmenu",e=>e.preventDefault());
 
 /* ========== FACE-AI BEAUTY (MediaPipe FaceLandmarker) ========== */
 const MP_VER="0.10.18";
