@@ -225,12 +225,12 @@ const PRESETS = {
   autumn:{n:"ตะวันเย็น",f:"saturate(1.22) contrast(1.04) sepia(.28)",ov:{c:"#ff8a2b",a:.18,m:"soft-light"}},
   nordic:{n:"นอร์ดิก",f:"saturate(.72) contrast(1.05) brightness(1.02)",ov:{c:"#4d7bff",a:.08,m:"soft-light"}},
   neon:{n:"นีออน",f:"contrast(1.15) saturate(1.3) hue-rotate(-15deg)",ov:{c:"#7c3dff",a:.14,m:"soft-light"}},
-  flash_clear:{n:"แฟลชผิวใส",f:"brightness(1.14) contrast(1.12) saturate(.98)",ov:{c:"#ffffff",a:.12,m:"soft-light"}},
-  flash_hd:{n:"แฟลช HD",f:"brightness(1.1) contrast(1.3) saturate(1.08)",ov:{c:"#eef4ff",a:.1,m:"soft-light"}},
-  flash_bokeh:{n:"แฟลชโบเก้",f:"brightness(1.12) contrast(1.08) saturate(1.08)",ov:{c:"#ffe3c0",a:.12,m:"soft-light"},fade:.08},
-  flash_ricoh:{n:"แฟลช Ricoh",f:"brightness(1.06) contrast(1.22) saturate(1.05) hue-rotate(8deg)",ov:{c:"#dff0e0",a:.1,m:"soft-light"}},
-  flash_night:{n:"แฟลชกลางคืน",f:"brightness(1.12) contrast(1.28) saturate(1.02)",ov:{c:"#d6e4ff",a:.12,m:"soft-light"}},
-  flash_pink:{n:"แฟลชพิงก์",f:"brightness(1.1) contrast(1.1) saturate(1.08)",ov:{c:"#ffd0e0",a:.14,m:"soft-light"}},
+  flash_clear:{n:"แฟลชผิวใส",f:"brightness(1.14) contrast(1.08) saturate(.95)",hi:{c:"#fff6ee",a:.14},sh:{c:"#5a6a8a",a:.14}},
+  flash_hd:{n:"แฟลช HD",f:"brightness(1.08) contrast(1.3) saturate(1.06)",hi:{c:"#ffffff",a:.14},sh:{c:"#2e3a5e",a:.2}},
+  flash_bokeh:{n:"แฟลชโบเก้",f:"brightness(1.12) contrast(1.06) saturate(1.08)",fade:.08,hi:{c:"#ffe6c0",a:.3},sh:{c:"#2a1a30",a:.18}},
+  flash_ricoh:{n:"แฟลช Ricoh",f:"brightness(1.05) contrast(1.2) saturate(1.08)",hi:{c:"#d8ffe0",a:.22},sh:{c:"#1e3a2a",a:.28}},
+  flash_night:{n:"แฟลชกลางคืน",f:"brightness(1.05) contrast(1.3) saturate(1.02)",hi:{c:"#dfeaff",a:.2},sh:{c:"#101a3a",a:.32}},
+  flash_pink:{n:"แฟลชพิงก์",f:"brightness(1.1) saturate(1.08)",hi:{c:"#ffd0e4",a:.3},sh:{c:"#3a1424",a:.2}},
   iphone_natural:{n:"เนเชอรัล",f:"brightness(1.02) contrast(1.05) saturate(1.08)"},
   iphone_warm:{n:"อุ่นธรรมชาติ",f:"brightness(1.03) saturate(1.1) sepia(.08)",ov:{c:"#ffcf9e",a:.08,m:"soft-light"}},
   iphone_rich:{n:"สีเข้ม",f:"contrast(1.12) saturate(1.2)"},
@@ -243,18 +243,18 @@ const PRESETS = {
   bright2:{n:"สว่าง",f:"brightness(1.12) contrast(1.02) saturate(1.03)"},
   soft:{n:"นุ่มนวล",f:"contrast(.95) brightness(1.05) saturate(.96)",fade:.1},
   candy:{n:"แคนดี้",f:"saturate(1.2) brightness(1.06)",ov:{c:"#ffc9e6",a:.12,m:"soft-light"}},
-  flash_film:{n:"แฟลชฟิล์ม",f:"brightness(1.08) contrast(1.1) saturate(.98) sepia(.14)",ov:{c:"#ffdca8",a:.1,m:"soft-light"},fade:.1},
-  flash_cool:{n:"แฟลชเย็น",f:"brightness(1.1) contrast(1.18) saturate(1.0) hue-rotate(-6deg)",ov:{c:"#bcd6ff",a:.12,m:"soft-light"}},
-  flash_warm:{n:"แฟลชอุ่น",f:"brightness(1.1) contrast(1.15) saturate(1.1) sepia(.1)",ov:{c:"#ffcf9e",a:.12,m:"soft-light"}},
-  flash_green:{n:"แฟลชเขียว (CCD)",f:"brightness(1.06) contrast(1.2) saturate(1.05) hue-rotate(12deg)",ov:{c:"#bfe6c8",a:.12,m:"soft-light"}},
-  flash_soft:{n:"แฟลชนุ่ม",f:"brightness(1.12) contrast(1.02) saturate(.98)",ov:{c:"#fff4ec",a:.12,m:"soft-light"},fade:.12},
-  flash_peach:{n:"แฟลชพีช",f:"brightness(1.1) contrast(1.1) saturate(1.12)",ov:{c:"#ffcbb0",a:.14,m:"soft-light"}},
-  flash_mint:{n:"แฟลชมินต์",f:"brightness(1.1) contrast(1.12) saturate(1.05) hue-rotate(-4deg)",ov:{c:"#b8f0e6",a:.12,m:"soft-light"}},
-  flash_white:{n:"แฟลชขาวนวล",f:"brightness(1.16) contrast(1.06) saturate(.9)",ov:{c:"#ffffff",a:.14,m:"soft-light"},fade:.08},
-  flash_korea:{n:"แฟลชเกาหลี",f:"brightness(1.13) contrast(1.08) saturate(1.0)",ov:{c:"#eef3ff",a:.12,m:"soft-light"},fade:.06},
-  flash_party:{n:"แฟลชปาร์ตี้",f:"brightness(1.08) contrast(1.22) saturate(1.3)",ov:{c:"#ff9fe0",a:.1,m:"soft-light"}},
-  flash_tokyo:{n:"แฟลชโตเกียว",f:"brightness(1.08) contrast(1.28) saturate(1.08) hue-rotate(-8deg)",ov:{c:"#9fb8ff",a:.12,m:"soft-light"}},
-  flash_retro:{n:"แฟลชซีเนมา",f:"brightness(1.06) contrast(1.2) saturate(1.1) hue-rotate(-4deg)",ov:{c:"#ffd9a0",a:.1,m:"soft-light"}}
+  flash_film:{n:"แฟลชฟิล์ม",f:"brightness(1.06) contrast(1.08) saturate(.96) sepia(.1)",fade:.12,hi:{c:"#ffe0b0",a:.24},sh:{c:"#22220c",a:.24}},
+  flash_cool:{n:"แฟลชเย็น",f:"brightness(1.1) contrast(1.15) saturate(1.0)",hi:{c:"#bcd6ff",a:.3},sh:{c:"#10203a",a:.26}},
+  flash_warm:{n:"แฟลชอุ่น",f:"brightness(1.08) contrast(1.12) saturate(1.1)",hi:{c:"#ffdca0",a:.3},sh:{c:"#3a2410",a:.26}},
+  flash_green:{n:"แฟลชเขียว (CCD)",f:"brightness(1.05) contrast(1.18) saturate(1.05)",hi:{c:"#c0ffe0",a:.24},sh:{c:"#0a2a24",a:.3}},
+  flash_soft:{n:"แฟลชนุ่ม",f:"brightness(1.12) contrast(.98) saturate(.98)",fade:.15,hi:{c:"#fff0f0",a:.22},sh:{c:"#404050",a:.14}},
+  flash_peach:{n:"แฟลชพีช",f:"brightness(1.1) saturate(1.12)",hi:{c:"#ffcdb0",a:.3},sh:{c:"#3a1e14",a:.2}},
+  flash_mint:{n:"แฟลชมินต์",f:"brightness(1.1) contrast(1.1) saturate(1.05)",hi:{c:"#c4f5ea",a:.28},sh:{c:"#0e2e2e",a:.22}},
+  flash_white:{n:"แฟลชขาวนวล",f:"brightness(1.18) contrast(1.04) saturate(.88)",fade:.08,hi:{c:"#ffffff",a:.24},sh:{c:"#505868",a:.1}},
+  flash_korea:{n:"แฟลชเกาหลี",f:"brightness(1.14) contrast(1.06) saturate(1.0)",fade:.08,hi:{c:"#eef4ff",a:.22},sh:{c:"#3a4660",a:.14}},
+  flash_party:{n:"แฟลชปาร์ตี้",f:"brightness(1.05) contrast(1.24) saturate(1.35)",hi:{c:"#ffc0ec",a:.2},sh:{c:"#2a0030",a:.26}},
+  flash_tokyo:{n:"แฟลชโตเกียว",f:"brightness(1.05) contrast(1.3) saturate(1.1)",hi:{c:"#a0c0ff",a:.24},sh:{c:"#001040",a:.32}},
+  flash_retro:{n:"แฟลชซีเนมา",f:"brightness(1.06) contrast(1.2) saturate(1.12)",hi:{c:"#ffcf90",a:.26},sh:{c:"#063038",a:.3}}
 };
 const FILTER_CATS={
   basic:["fresh","clean","bright2","soft"],
@@ -377,6 +377,8 @@ function paint(ctx,W,H,blurScale){
     const t=document.createElement("canvas");t.width=W;t.height=H;const tx=t.getContext("2d");
     tx.filter=buildFilter(); tx.drawImage(img,0,0,W,H); tx.filter="none";
     if(p.ov) overlayFill(tx,W,H,p.ov.c,p.ov.a,p.ov.m);
+    if(p.sh) overlayFill(tx,W,H,p.sh.c,p.sh.a,"multiply");
+    if(p.hi) overlayFill(tx,W,H,p.hi.c,p.hi.a,"screen");
     if(p.fade){ tx.save();tx.globalCompositeOperation="lighten";tx.globalAlpha=p.fade*0.55;tx.fillStyle="#2a2d38";tx.fillRect(0,0,W,H);tx.restore(); }
     if(p.vig){ const g=tx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${p.vig})`);tx.fillStyle=g;tx.fillRect(0,0,W,H); }
     ctx.save();ctx.globalAlpha=str;ctx.drawImage(t,0,0);ctx.restore();
@@ -574,6 +576,8 @@ function panelFilter(){
     const sw=64,sh=64; const dw=ar>1?sw:sh*ar, dh=ar>1?sw/ar:sh; const ox=(sw-dw)/2,oy=(sh-dh)/2;
     cx.save();cx.filter=(`brightness(1) contrast(1) saturate(1) `+(p.f||"")).trim();cx.drawImage(thumbSrc,ox,oy,dw,dh);cx.restore();
     if(p.ov){cx.save();cx.globalCompositeOperation=p.ov.m||"soft-light";cx.globalAlpha=p.ov.a;cx.fillStyle=p.ov.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
+    if(p.sh){cx.save();cx.globalCompositeOperation="multiply";cx.globalAlpha=p.sh.a;cx.fillStyle=p.sh.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
+    if(p.hi){cx.save();cx.globalCompositeOperation="screen";cx.globalAlpha=p.hi.a;cx.fillStyle=p.hi.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
     t.appendChild(c);const s=document.createElement("span");s.textContent=p.n;t.appendChild(s);
     t.onclick=()=>{S.filter=key;S.filterStrength=1;render();snapshot();refreshPanel();};
     strip.appendChild(t);
