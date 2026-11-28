@@ -170,6 +170,7 @@ const S = {
   adjust:{brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1},
   beauty:{smooth:0,whiten:0,rosy:0},
   filter:"org",
+  filterStrength:1,
   frame:"none",
   overlays:[],         // {id,type,content,font,color,size,x,y,scale,rot,el}
   baseSrc:null,        // data URL of current (baked) base image
@@ -206,7 +207,7 @@ const img = new Image();
 /* ---------- history ---------- */
 let hist=[], hpos=-1;
 function snapshot(){
-  const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,frame:S.frame,
+  const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,filterStrength:S.filterStrength,frame:S.frame,
     baseSrc:S.baseSrc,natW:S.natW,natH:S.natH,
     overlays:S.overlays.map(o=>({type:o.type,content:o.content,font:o.font,color:o.color,size:o.size,x:o.x,y:o.y,scale:o.scale,rot:o.rot,opacity:o.opacity})),
     doodle:dood.width?dood.toDataURL():null};
@@ -216,7 +217,7 @@ function snapshot(){
 function updHist(){ $("#btnUndo").disabled=hpos<=0; $("#btnRedo").disabled=hpos>=hist.length-1; }
 async function restore(st){
   Object.assign(S.adjust,st.adjust); Object.assign(S.beauty,st.beauty);
-  S.filter=st.filter; S.frame=st.frame; S.natW=st.natW; S.natH=st.natH;
+  S.filter=st.filter; S.filterStrength=st.filterStrength==null?1:st.filterStrength; S.frame=st.frame; S.natW=st.natW; S.natH=st.natH;
   // overlays
   overlay.innerHTML=""; S.overlays=[];
   st.overlays.forEach(o=>addOverlay(o,false));
@@ -256,38 +257,44 @@ function sizeDoodle(){
 }
 
 /* ---------- core render ---------- */
-function buildFilter(){
-  const a=S.adjust, p=PRESETS[S.filter];
+function adjustFilter(){
+  const a=S.adjust;
   const bright=a.brightness*a.exposure;
   const con=a.contrast*(1+a.clarity*0.35)*(1-a.fade*0.25);
   const sat=a.saturation*(1-a.fade*0.15);
-  let f=`brightness(${bright.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)})`;
-  if(p.f) f+=" "+p.f;
-  return f;
+  return `brightness(${bright.toFixed(3)}) contrast(${con.toFixed(3)}) saturate(${sat.toFixed(3)})`;
 }
+function buildFilter(){ const p=PRESETS[S.filter]; return (adjustFilter()+(p.f?" "+p.f:"")).trim(); }
 function overlayFill(ctx,W,H,color,alpha,mode){
   ctx.save();ctx.globalCompositeOperation=mode||"soft-light";ctx.globalAlpha=alpha;ctx.fillStyle=color;ctx.fillRect(0,0,W,H);ctx.restore();
 }
 function paint(ctx,W,H,blurScale){
   const a=S.adjust,b=S.beauty,p=PRESETS[S.filter];
+  const str=(S.filter==="org")?0:(S.filterStrength==null?1:S.filterStrength);
   ctx.clearRect(0,0,W,H);
-  ctx.save(); ctx.filter=buildFilter(); ctx.drawImage(img,0,0,W,H); ctx.restore();
-  // beauty: smooth skin (soft blurred overlay)
-  if(b.smooth>0){ ctx.save(); ctx.globalAlpha=b.smooth*0.85; ctx.filter=`blur(${(b.smooth*blurScale).toFixed(2)}px) ${buildFilter()}`; ctx.drawImage(img,0,0,W,H); ctx.restore(); }
+  // base: adjustments only
+  ctx.save(); ctx.filter=adjustFilter(); ctx.drawImage(img,0,0,W,H); ctx.restore();
+  // preset layer, blended by strength
+  if(str>0){
+    const t=document.createElement("canvas");t.width=W;t.height=H;const tx=t.getContext("2d");
+    tx.filter=buildFilter(); tx.drawImage(img,0,0,W,H); tx.filter="none";
+    if(p.ov) overlayFill(tx,W,H,p.ov.c,p.ov.a,p.ov.m);
+    if(p.fade){ tx.save();tx.globalCompositeOperation="lighten";tx.globalAlpha=p.fade*0.55;tx.fillStyle="#2a2d38";tx.fillRect(0,0,W,H);tx.restore(); }
+    if(p.vig){ const g=tx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${p.vig})`);tx.fillStyle=g;tx.fillRect(0,0,W,H); }
+    ctx.save();ctx.globalAlpha=str;ctx.drawImage(t,0,0);ctx.restore();
+  }
+  // beauty: smooth skin (blur the current composite so it matches the look)
+  if(b.smooth>0){
+    const t2=document.createElement("canvas");t2.width=W;t2.height=H;const t2x=t2.getContext("2d");
+    t2x.filter=`blur(${(b.smooth*blurScale).toFixed(2)}px)`; t2x.drawImage(ctx.canvas,0,0,W,H);
+    ctx.save();ctx.globalAlpha=b.smooth*0.85;ctx.drawImage(t2,0,0);ctx.restore();
+  }
   if(b.whiten>0){ overlayFill(ctx,W,H,"#ffffff",b.whiten*0.35,"soft-light"); overlayFill(ctx,W,H,"#fff4ec",b.whiten*0.12,"lighten"); }
   if(b.rosy>0){ overlayFill(ctx,W,H,"#ff6f91",b.rosy*0.45,"soft-light"); }
-  // preset overlay
-  if(p.ov){ overlayFill(ctx,W,H,p.ov.c,p.ov.a,p.ov.m); }
-  // temperature
   if(a.temp>0){ overlayFill(ctx,W,H,"#ff8a2b",Math.abs(a.temp)*0.3,"soft-light"); }
   else if(a.temp<0){ overlayFill(ctx,W,H,"#2b7bff",Math.abs(a.temp)*0.3,"soft-light"); }
-  // fade (preset + adjust)
-  const fade=Math.max(a.fade,p.fade||0);
-  if(fade>0){ ctx.save();ctx.globalCompositeOperation="lighten";ctx.globalAlpha=fade*0.55;ctx.fillStyle="#2a2d38";ctx.fillRect(0,0,W,H);ctx.restore(); }
-  // vignette
-  const vig=Math.max(a.vignette,p.vig||0);
-  if(vig>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);
-    g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${vig})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  if(a.fade>0){ ctx.save();ctx.globalCompositeOperation="lighten";ctx.globalAlpha=a.fade*0.55;ctx.fillStyle="#2a2d38";ctx.fillRect(0,0,W,H);ctx.restore(); }
+  if(a.vignette>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${a.vignette})`);ctx.fillStyle=g;ctx.fillRect(0,0,W,H); }
 }
 function render(){ if(!S.baseSrc)return;
   if(retouchMode){ bctx.setTransform(1,0,0,1,0,0); bctx.clearRect(0,0,base.width,base.height); bctx.drawImage(rwork,0,0,base.width,base.height); return; }
@@ -451,9 +458,17 @@ function panelFilter(){
     cx.save();cx.filter=(`brightness(1) contrast(1) saturate(1) `+(p.f||"")).trim();cx.drawImage(thumbSrc,ox,oy,dw,dh);cx.restore();
     if(p.ov){cx.save();cx.globalCompositeOperation=p.ov.m||"soft-light";cx.globalAlpha=p.ov.a;cx.fillStyle=p.ov.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
     t.appendChild(c);const s=document.createElement("span");s.textContent=p.n;t.appendChild(s);
-    t.onclick=()=>{S.filter=key;render();snapshot();[...strip.children].forEach(x=>x.classList.remove("active"));t.classList.add("active");};
+    t.onclick=()=>{S.filter=key;S.filterStrength=1;render();snapshot();refreshPanel();};
     strip.appendChild(t);
   });
+  if(S.filter!=="org"){
+    const row=document.createElement("div");row.className="row";row.style.marginTop="10px";
+    row.innerHTML=`<label>ความเข้มฟิลเตอร์</label><input type="range" min="0" max="1" step="0.01" value="${S.filterStrength}"><output>${Math.round(S.filterStrength*100)}</output>`;
+    const inp=row.querySelector("input"),out=row.querySelector("output");
+    inp.addEventListener("input",()=>{S.filterStrength=parseFloat(inp.value);out.textContent=Math.round(S.filterStrength*100);render();});
+    inp.addEventListener("change",snapshot);
+    panel.appendChild(row);
+  }
 }
 function panelAdjust(){
   head("ปรับแสงสี",()=>{S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};render();snapshot();refreshPanel();});
@@ -633,7 +648,7 @@ async function setNewImage(src,user){
   S.baseSrc=src; await loadImg(src);
   // reset everything for a fresh photo
   S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};
-  S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.frame="none";
+  S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.filterStrength=1; S.frame="none";
   overlay.innerHTML="";S.overlays=[];selEl=null;
   fitStage(); dctx.clearRect(0,0,dood.width,dood.height);
   applyFrameCSS(); render();
