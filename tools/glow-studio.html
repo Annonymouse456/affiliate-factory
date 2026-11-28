@@ -180,6 +180,8 @@ const S = {
   beauty:{smooth:0,whiten:0,rosy:0},
   filter:"org",
   filterStrength:1,
+  filterCat:"all",
+  fx:{grain:0,leak:0,dust:0},
   frame:"none",
   overlays:[],         // {id,type,content,font,color,size,x,y,scale,rot,el}
   baseSrc:null,        // data URL of current (baked) base image
@@ -216,6 +218,13 @@ const PRESETS = {
   nordic:{n:"นอร์ดิก",f:"saturate(.72) contrast(1.05) brightness(1.02)",ov:{c:"#4d7bff",a:.08,m:"soft-light"}},
   neon:{n:"นีออน",f:"contrast(1.15) saturate(1.3) hue-rotate(-15deg)",ov:{c:"#7c3dff",a:.14,m:"soft-light"}}
 };
+const FILTER_CATS={
+  bright:["fresh","sweet","vivid","cool","sunset","pastel","airy"],
+  film:["film","kodak","fuji","ocean","cinema","autumn","nordic","neon","moody"],
+  vintage:["warm","vintage","fade","faded","retro","nineties"],
+  bw:["mono","noir","monofilm"]
+};
+function presetCat(key){ for(const c in FILTER_CATS){ if(FILTER_CATS[c].includes(key)) return c; } return "other"; }
 const EMOJIS = ["😍","😘","🥰","😎","🤩","😂","🥹","😇","🔥","✨","💫","⭐","💖","💕","💘","❤️","🌸","🌷","🌺","🌈","☀️","🌙","⚡","💎","👑","🎀","🎉","🎈","🦋","🐱","🐶","🌟","💐","🍓","🍑","🍰","☕","📷","💄","👛"];
 const SWATCHES = ["#ffffff","#111111","#ff5c8a","#7c6cff","#38d39f","#ffd23f","#ff7a3d","#4d7bff","#ff3b6b","#00d2d2"];
 const FONTS = [["Prompt","Prompt"],["Noto Sans Thai","Noto Sans Thai"],["Pacifico","Pacifico"],["Space Grotesk","Space Grotesk"],["Inter","Inter"]];
@@ -231,7 +240,7 @@ const img = new Image();
 /* ---------- history ---------- */
 let hist=[], hpos=-1;
 function snapshot(){
-  const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,filterStrength:S.filterStrength,frame:S.frame,
+  const st={adjust:{...S.adjust},beauty:{...S.beauty},filter:S.filter,filterStrength:S.filterStrength,fx:{...S.fx},frame:S.frame,
     baseSrc:S.baseSrc,natW:S.natW,natH:S.natH,
     overlays:S.overlays.map(o=>({type:o.type,content:o.content,font:o.font,color:o.color,size:o.size,x:o.x,y:o.y,scale:o.scale,rot:o.rot,opacity:o.opacity})),
     doodle:dood.width?dood.toDataURL():null};
@@ -241,7 +250,7 @@ function snapshot(){
 function updHist(){ $("#btnUndo").disabled=hpos<=0; $("#btnRedo").disabled=hpos>=hist.length-1; }
 async function restore(st){
   Object.assign(S.adjust,st.adjust); Object.assign(S.beauty,st.beauty);
-  S.filter=st.filter; S.filterStrength=st.filterStrength==null?1:st.filterStrength; S.frame=st.frame; S.natW=st.natW; S.natH=st.natH;
+  S.filter=st.filter; S.filterStrength=st.filterStrength==null?1:st.filterStrength; if(st.fx)Object.assign(S.fx,st.fx); S.frame=st.frame; S.natW=st.natW; S.natH=st.natH;
   // overlays
   overlay.innerHTML=""; S.overlays=[];
   st.overlays.forEach(o=>addOverlay(o,false));
@@ -319,6 +328,19 @@ function paint(ctx,W,H,blurScale){
   else if(a.temp<0){ overlayFill(ctx,W,H,"#2b7bff",Math.abs(a.temp)*0.3,"soft-light"); }
   if(a.fade>0){ ctx.save();ctx.globalCompositeOperation="lighten";ctx.globalAlpha=a.fade*0.55;ctx.fillStyle="#2a2d38";ctx.fillRect(0,0,W,H);ctx.restore(); }
   if(a.vignette>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${a.vignette})`);ctx.fillStyle=g;ctx.fillRect(0,0,W,H); }
+  applyFX(ctx,W,H);
+}
+let _noise=null,_dust=null;
+function _mkNoise(){ const c=document.createElement("canvas");c.width=c.height=160;const x=c.getContext("2d");const id=x.createImageData(160,160);for(let i=0;i<id.data.length;i+=4){const v=Math.random()*255;id.data[i]=id.data[i+1]=id.data[i+2]=v;id.data[i+3]=255;}x.putImageData(id,0,0);return c; }
+function _mkDust(){ const c=document.createElement("canvas");c.width=c.height=400;const x=c.getContext("2d");
+  for(let i=0;i<220;i++){x.globalAlpha=Math.random()*0.5+0.2;x.fillStyle=Math.random()<0.5?"#fff":"#cfcfcf";x.beginPath();x.arc(Math.random()*400,Math.random()*400,Math.random()*1.4+0.3,0,7);x.fill();}
+  for(let i=0;i<6;i++){x.globalAlpha=Math.random()*0.25+0.1;x.strokeStyle="#fff";x.lineWidth=Math.random()*0.8+0.3;const sx=Math.random()*400;x.beginPath();x.moveTo(sx,0);x.lineTo(sx+(Math.random()*20-10),400);x.stroke();}
+  x.globalAlpha=1;return c; }
+function applyFX(ctx,W,H){
+  const fx=S.fx; if(!fx)return;
+  if(fx.grain>0){ if(!_noise)_noise=_mkNoise(); ctx.save();ctx.globalCompositeOperation="overlay";ctx.globalAlpha=fx.grain*0.5;ctx.fillStyle=ctx.createPattern(_noise,"repeat");ctx.fillRect(0,0,W,H);ctx.restore(); }
+  if(fx.leak>0){ ctx.save();ctx.globalCompositeOperation="screen";ctx.globalAlpha=fx.leak;const g=ctx.createRadialGradient(W*0.85,H*0.15,0,W*0.85,H*0.15,Math.max(W,H)*0.75);g.addColorStop(0,"rgba(255,175,90,0.95)");g.addColorStop(0.45,"rgba(255,95,70,0.4)");g.addColorStop(1,"rgba(255,95,70,0)");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);ctx.restore(); }
+  if(fx.dust>0){ if(!_dust)_dust=_mkDust(); ctx.save();ctx.globalCompositeOperation="screen";ctx.globalAlpha=fx.dust*0.6;ctx.fillStyle=ctx.createPattern(_dust,"repeat");ctx.fillRect(0,0,W,H);ctx.restore(); }
 }
 function render(){ if(!S.baseSrc)return;
   if(retouchMode){ bctx.setTransform(1,0,0,1,0,0); bctx.clearRect(0,0,base.width,base.height); bctx.drawImage(rwork,0,0,base.width,base.height); return; }
@@ -471,9 +493,14 @@ function makeThumbSrc(){
 }
 function panelFilter(){
   head("ฟิลเตอร์");
+  const cat=S.filterCat||"all";
+  const cc=document.createElement("div");cc.className="chips";cc.style.marginBottom="8px";
+  [["all","ทั้งหมด"],["bright","สดใส"],["film","ฟิล์ม"],["vintage","วินเทจ"],["bw","ขาวดำ"]].forEach(([k,l])=>{const b=document.createElement("button");b.className="chip"+(cat===k?" active":"");b.textContent=l;b.onclick=()=>{S.filterCat=k;refreshPanel();};cc.appendChild(b);});
+  panel.appendChild(cc);
   const strip=document.createElement("div");strip.className="strip";panel.appendChild(strip);
   makeThumbSrc();
   Object.keys(PRESETS).forEach(key=>{
+    if(key!=="org" && cat!=="all" && presetCat(key)!==cat) return;
     const t=document.createElement("div");t.className="thumb"+(S.filter===key?" active":"");
     const c=document.createElement("canvas");const ar=thumbSrc.width/thumbSrc.height;c.width=64;c.height=64;
     const cx=c.getContext("2d");const p=PRESETS[key];
@@ -493,6 +520,16 @@ function panelFilter(){
     inp.addEventListener("change",snapshot);
     panel.appendChild(row);
   }
+  const fh=document.createElement("div");fh.style.cssText="font-size:.82rem;font-weight:700;margin:14px 0 2px";fh.textContent="🎞️ เอฟเฟกต์ฟิล์ม";panel.appendChild(fh);
+  panel.append(sliderFX("เกรน (grain)","grain"),sliderFX("แสงรั่ว (light leak)","leak"),sliderFX("ฝุ่น / รอยขีด","dust"));
+}
+function sliderFX(label,key){
+  const row=document.createElement("div");row.className="row";
+  row.innerHTML=`<label>${label}</label><input type="range" min="0" max="1" step="0.01" value="${S.fx[key]}"><output>${Math.round(S.fx[key]*100)}</output>`;
+  const inp=row.querySelector("input"),out=row.querySelector("output");
+  inp.addEventListener("input",()=>{S.fx[key]=parseFloat(inp.value);out.textContent=Math.round(S.fx[key]*100);render();});
+  inp.addEventListener("change",snapshot);
+  return row;
 }
 function panelAdjust(){
   head("ปรับแสงสี",()=>{S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};render();snapshot();refreshPanel();});
@@ -672,7 +709,7 @@ async function setNewImage(src,user){
   S.baseSrc=src; S.originalSrc=src; await loadImg(src);
   // reset everything for a fresh photo
   S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};
-  S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.filterStrength=1; S.frame="none";
+  S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.filterStrength=1; S.fx={grain:0,leak:0,dust:0}; S.frame="none";
   overlay.innerHTML="";S.overlays=[];selEl=null;
   fitStage(); dctx.clearRect(0,0,dood.width,dood.height);
   applyFrameCSS(); render();
