@@ -469,12 +469,22 @@ function panelAdjust(){
 }
 function panelBeauty(){
   head("บิวตี้ / รีทัช",()=>{S.beauty={smooth:0,whiten:0,rosy:0};render();snapshot();refreshPanel();});
+  const aihdr=document.createElement("div");aihdr.style.cssText="font-size:.82rem;font-weight:700;margin-bottom:6px";aihdr.textContent="✨ บิวตี้อัตโนมัติ (AI ตรวจใบหน้า)";panel.appendChild(aihdr);
+  const chips=document.createElement("div");chips.className="chips";
+  [["เบา",0.4],["กลาง",0.7],["เข้ม",1]].forEach(([l,s])=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>faceBeautyAuto(s);chips.appendChild(b);});
+  panel.appendChild(chips);
+  const slim=document.createElement("div");slim.className="chips";slim.style.marginTop="6px";
+  const sl=document.createElement("span");sl.style.cssText="font-size:.76rem;color:var(--muted);align-self:center;margin-right:2px";sl.textContent="ดัดหน้าเรียว:";slim.appendChild(sl);
+  [["เบา",0.5],["กลาง",1],["เข้ม",1.6]].forEach(([l,s])=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>faceSlimAuto(s);slim.appendChild(b);});
+  panel.appendChild(slim);
+  const an=document.createElement("p");an.className="note";an.innerHTML="เนียนเฉพาะผิว เก็บตา/ปากคม · ทำงานกับรูปที่มีใบหน้า · ครั้งแรกโหลดโมเดลสักครู่ · ต้องเปิดบนเว็บจริง (ลิงก์ Pages)";panel.appendChild(an);
+  const hr=document.createElement("div");hr.style.cssText="height:1px;background:var(--line);margin:12px 0";panel.appendChild(hr);
+  const mh=document.createElement("div");mh.style.cssText="font-size:.82rem;font-weight:700;margin-bottom:2px";mh.textContent="ปรับเองทั้งภาพ";panel.appendChild(mh);
   panel.append(
     slider("เนียนผิว","smooth",S.beauty,0,1,.01,v=>Math.round(v*100)),
     slider("หน้าใส","whiten",S.beauty,0,1,.01,v=>Math.round(v*100)),
     slider("แก้มชมพู","rosy",S.beauty,0,1,.01,v=>Math.round(v*100))
   );
-  const n=document.createElement("p");n.className="note";n.textContent="เคล็ดลับ: อัปโหลดรูปคนเพื่อให้บิวตี้เห็นผลชัดที่สุด";panel.appendChild(n);
 }
 /* sticker */
 function panelSticker(){
@@ -1091,6 +1101,93 @@ btnFull.onclick=async()=>{
 };
 document.addEventListener("fullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
 document.addEventListener("webkitfullscreenchange",()=>{ btnFull.textContent=fsEl()?"⤡":"⤢"; onResize(); });
+
+/* ========== FACE-AI BEAUTY (MediaPipe FaceLandmarker) ========== */
+const MP_VER="0.10.18";
+let _faceLM=null,_faceLoading=null;
+async function loadFaceAI(){
+  if(_faceLM)return _faceLM; if(_faceLoading)return _faceLoading;
+  _faceLoading=(async()=>{
+    const vision=await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/vision_bundle.mjs`);
+    const fs=await vision.FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}/wasm`);
+    _faceLM=await vision.FaceLandmarker.createFromOptions(fs,{baseOptions:{modelAssetPath:"https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task"},runningMode:"IMAGE",numFaces:4});
+    return _faceLM;
+  })().catch(e=>{ _faceLoading=null; throw e; });
+  return _faceLoading;
+}
+const FACE_OVAL=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];
+const L_EYE=[33,246,161,160,159,158,157,173,133,155,154,153,145,144,163,7];
+const R_EYE=[263,466,388,387,386,385,384,398,362,382,381,380,374,373,390,249];
+const LIPS=[61,185,40,39,37,0,267,269,270,409,291,375,321,405,314,17,84,181,91,146];
+const L_BROW=[70,63,105,66,107,55,65,52,53,46];
+const R_BROW=[300,293,334,296,336,285,295,282,283,276];
+function lmPoly(f,idx,W,H){ return idx.map(i=>({x:f[i].x*W,y:f[i].y*H})); }
+function fillPoly(ctx,pts){ ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.closePath();ctx.fill(); }
+async function detectFaces(){ const lm=await loadFaceAI(); const res=lm.detect(img); return (res&&res.faceLandmarks)||[]; }
+async function bakeCanvas(cv){ S.baseSrc=cv.toDataURL("image/png"); await loadImg(S.baseSrc); fitStage(); render(); repositionAll(); snapshot(); }
+async function faceBeautyAuto(strength){
+  if(!S.baseSrc||aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังโหลดโมเดล/ตรวจใบหน้า…");
+  try{
+    let faces; try{ faces=await detectFaces(); }catch(e){ throw new Error("โหลดโมเดลไม่ได้ — ต้องเปิดบนเว็บจริง (ลิงก์ Pages) + เน็ตปกติ"); }
+    if(!faces.length) throw new Error("ไม่พบใบหน้าในรูปนี้");
+    aiOverlay(true,"กำลังทำบิวตี้…"); await new Promise(r=>setTimeout(r,20));
+    const W=S.natW,H=S.natH,mn=Math.min(W,H);
+    const mask=document.createElement("canvas");mask.width=W;mask.height=H;const mc=mask.getContext("2d");
+    mc.fillStyle="#000";mc.fillRect(0,0,W,H);mc.fillStyle="#fff";
+    faces.forEach(f=>fillPoly(mc,lmPoly(f,FACE_OVAL,W,H)));
+    mc.fillStyle="#000";faces.forEach(f=>[L_EYE,R_EYE,LIPS,L_BROW,R_BROW].forEach(idx=>fillPoly(mc,lmPoly(f,idx,W,H))));
+    const maskF=document.createElement("canvas");maskF.width=W;maskF.height=H;const mf=maskF.getContext("2d");
+    mf.filter=`blur(${Math.max(2,mn*0.012)}px)`;mf.drawImage(mask,0,0);
+    const work=document.createElement("canvas");work.width=W;work.height=H;const wc=work.getContext("2d");
+    wc.drawImage(img,0,0);
+    const blur=document.createElement("canvas");blur.width=W;blur.height=H;const bc=blur.getContext("2d");
+    bc.filter=`blur(${Math.max(2,mn*0.006*(1+strength))}px)`;bc.drawImage(img,0,0);
+    bc.filter="none";bc.globalCompositeOperation="destination-in";bc.drawImage(maskF,0,0);
+    wc.globalAlpha=strength*0.9;wc.drawImage(blur,0,0);wc.globalAlpha=1;
+    const bright=document.createElement("canvas");bright.width=W;bright.height=H;const brc=bright.getContext("2d");
+    brc.fillStyle="#fff";brc.fillRect(0,0,W,H);brc.globalCompositeOperation="destination-in";brc.drawImage(maskF,0,0);
+    wc.globalCompositeOperation="soft-light";wc.globalAlpha=strength*0.28;wc.drawImage(bright,0,0);
+    wc.globalCompositeOperation="source-over";wc.globalAlpha=1;
+    await bakeCanvas(work);
+    aiToast("บิวตี้อัตโนมัติเสร็จ ✓ ("+faces.length+" ใบหน้า)");
+  }catch(e){ aiToast(e.message||String(e)); }
+  finally{ aiBusy=false; aiOverlay(false); }
+}
+function warpPush(cv,bx,by,r,dx,dy,str){
+  const ctx=cv.getContext("2d");
+  const x0=Math.max(0,Math.floor(bx-r)),y0=Math.max(0,Math.floor(by-r));
+  const x1=Math.min(cv.width,Math.ceil(bx+r)),y1=Math.min(cv.height,Math.ceil(by+r));
+  const w=x1-x0,h=y1-y0; if(w<=0||h<=0)return;
+  const src=ctx.getImageData(x0,y0,w,h),sd=src.data,out=ctx.createImageData(w,h),od=out.data;od.set(sd);
+  for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+    const px=x0+xx,py=y0+yy,dd=Math.hypot(px-bx,py-by); if(dd>r)continue;
+    const fo=(1-dd/r)*(1-dd/r)*str; let sx=(px-dx*fo)-x0,sy=(py-dy*fo)-y0;
+    sx=Math.max(0,Math.min(w-1,sx));sy=Math.max(0,Math.min(h-1,sy));
+    const xi=Math.floor(sx),yi=Math.floor(sy),fx=sx-xi,fy=sy-yi,xi2=Math.min(w-1,xi+1),yi2=Math.min(h-1,yi+1);
+    const i00=(yi*w+xi)*4,i10=(yi*w+xi2)*4,i01=(yi2*w+xi)*4,i11=(yi2*w+xi2)*4,o=(yy*w+xx)*4;
+    for(let c=0;c<4;c++){const top=sd[i00+c]*(1-fx)+sd[i10+c]*fx,bot=sd[i01+c]*(1-fx)+sd[i11+c]*fx;od[o+c]=top*(1-fy)+bot*fy;}
+  }
+  ctx.putImageData(out,x0,y0);
+}
+async function faceSlimAuto(amount){
+  if(!S.baseSrc||aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังโหลดโมเดล/ตรวจใบหน้า…");
+  try{
+    let faces; try{ faces=await detectFaces(); }catch(e){ throw new Error("โหลดโมเดลไม่ได้ — ต้องเปิดบนเว็บจริง (ลิงก์ Pages)"); }
+    if(!faces.length) throw new Error("ไม่พบใบหน้าในรูปนี้");
+    aiOverlay(true,"กำลังดัดหน้า…"); await new Promise(r=>setTimeout(r,20));
+    const W=S.natW,H=S.natH;
+    const work=document.createElement("canvas");work.width=W;work.height=H;work.getContext("2d").drawImage(img,0,0);
+    const JAW=[234,93,132,58,172,136,150,149,176,148,152,377,400,378,379,365,397,288,361,323,454];
+    faces.forEach(f=>{
+      const cx=f[1].x*W, faceW=Math.abs((f[454].x-f[234].x)*W);
+      JAW.forEach(i=>{ const px=f[i].x*W,py=f[i].y*H, dir=px<cx?1:-1, dx=dir*faceW*0.045*amount;
+        warpPush(work,px,py,faceW*0.17,dx,0,0.85); });
+    });
+    await bakeCanvas(work);
+    aiToast("ดัดหน้าเสร็จ ✓");
+  }catch(e){ aiToast(e.message||String(e)); }
+  finally{ aiBusy=false; aiOverlay(false); }
+}
 
 /* ---------- init ---------- */
 function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
