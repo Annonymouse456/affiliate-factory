@@ -7,6 +7,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0e0f13">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <title>Glow Studio</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
@@ -225,7 +228,16 @@ const FILTER_CATS={
   bw:["mono","noir","monofilm"]
 };
 function presetCat(key){ for(const c in FILTER_CATS){ if(FILTER_CATS[c].includes(key)) return c; } return "other"; }
-const EMOJIS = ["😍","😘","🥰","😎","🤩","😂","🥹","😇","🔥","✨","💫","⭐","💖","💕","💘","❤️","🌸","🌷","🌺","🌈","☀️","🌙","⚡","💎","👑","🎀","🎉","🎈","🦋","🐱","🐶","🌟","💐","🍓","🍑","🍰","☕","📷","💄","👛"];
+const EMOJI_CATS = {
+  "ยอดนิยม":["😍","🥰","😎","🤩","🔥","✨","💖","❤️","👑","🎀","🌸","📷","💄","⭐","💫","🙌","🫶","💅","🥳","😘"],
+  "หน้า":["😍","😘","🥰","😎","🤩","😂","🥹","😇","😊","😅","😭","🥳","😏","😳","🤭","😴","🤗","😌","🥲","😤"],
+  "รัก":["❤️","🧡","💛","💚","💙","💜","🖤","🤍","💖","💕","💘","💓","💗","💞","💝","😻","🫶","💋","💐","🌹"],
+  "ธรรมชาติ":["🌸","🌷","🌺","🌻","🌹","🌈","☀️","🌙","⭐","🌟","⚡","❄️","🍃","🌿","🌴","🌊","🔥","💧","🍂","☁️"],
+  "ปาร์ตี้":["🎉","🎈","🎀","🎁","🎂","🍰","🥂","🍾","🎊","✨","💫","🪩","🎇","🎆","🧁","🍭"],
+  "สัตว์":["🐱","🐶","🐰","🐻","🐼","🦊","🦋","🐥","🐸","🦄","🐧","🐨","🐯","🐮","🐷","🐣"],
+  "อื่น ๆ":["💎","👛","☕","🍓","🍑","🍒","🍩","🍭","📱","💌","🔮","🏆","💰","🛍️","🎧","🕶️","✈️","📍"]
+};
+let stickCat=Object.keys(EMOJI_CATS)[0];
 const SWATCHES = ["#ffffff","#111111","#ff5c8a","#7c6cff","#38d39f","#ffd23f","#ff7a3d","#4d7bff","#ff3b6b","#00d2d2"];
 const FONTS = [["Prompt","Prompt"],["Noto Sans Thai","Noto Sans Thai"],["Pacifico","Pacifico"],["Space Grotesk","Space Grotesk"],["Inter","Inter"]];
 
@@ -565,8 +577,12 @@ function panelBeauty(){
 /* sticker */
 function panelSticker(){
   head("สติกเกอร์");
+  if(!EMOJI_CATS[stickCat])stickCat=Object.keys(EMOJI_CATS)[0];
+  const cc=document.createElement("div");cc.className="chips";cc.style.marginBottom="8px";
+  Object.keys(EMOJI_CATS).forEach(cat=>{const b=document.createElement("button");b.className="chip"+(stickCat===cat?" active":"");b.textContent=cat;b.onclick=()=>{stickCat=cat;refreshPanel();};cc.appendChild(b);});
+  panel.appendChild(cc);
   const g=document.createElement("div");g.className="grid-emoji";
-  EMOJIS.forEach(e=>{const b=document.createElement("button");b.textContent=e;b.onclick=()=>addOverlay({type:"sticker",content:e});g.appendChild(b);});
+  EMOJI_CATS[stickCat].forEach(e=>{const b=document.createElement("button");b.textContent=e;b.onclick=()=>addOverlay({type:"sticker",content:e});g.appendChild(b);});
   panel.appendChild(g);
   const n=document.createElement("p");n.className="note";n.textContent="แตะเพื่อเพิ่ม · ลากเพื่อย้าย · จับมุมชมพูเพื่อย่อ-ขยาย-หมุน · กากบาทแดงเพื่อลบ";panel.appendChild(n);
 }
@@ -906,8 +922,15 @@ const COL_LAYOUTS=[
   [[0,0,.5,1],[.5,0,.5,.5],[.5,.5,.5,.5]],
   [[0,0,1,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
   [[0,0,.5,.5],[.5,0,.5,.5],[0,.5,.5,.5],[.5,.5,.5,.5]],
-  [[0,0,.3333,1],[.3333,0,.3334,1],[.6667,0,.3333,1]]
+  [[0,0,.3333,1],[.3333,0,.3334,1],[.6667,0,.3333,1]],
+  [[0,0,1,.3333],[0,.3333,1,.3334],[0,.6667,1,.3333]],
+  [[0,0,.5,.5],[.5,0,.5,.5],[0,.5,1,.5]],
+  [[0,0,1,.6],[0,.6,.3333,.4],[.3333,.6,.3334,.4],[.6667,.6,.3333,.4]],
+  [[0,0,.5,.3333],[.5,0,.5,.3333],[0,.3333,.5,.3334],[.5,.3333,.5,.3334],[0,.6667,.5,.3333],[.5,.6667,.5,.3333]],
+  [[0,0,.3333,.5],[.3333,0,.3334,.5],[.6667,0,.3333,.5],[0,.5,.3333,.5],[.3333,.5,.3334,.5],[.6667,.5,.3333,.5]],
+  [[0,0,.3333,.3333],[.3333,0,.3334,.3333],[.6667,0,.3333,.3333],[0,.3333,.3333,.3334],[.3333,.3333,.3334,.3334],[.6667,.3333,.3333,.3334],[0,.6667,.3333,.3333],[.3333,.6667,.3334,.3333],[.6667,.6667,.3333,.3333]]
 ];
+const COL_LABELS=["2 ตั้ง","2 นอน","1+2 ตั้ง","1+2 นอน","4 ช่อง","3 ตั้ง","3 นอน","2+1","1+3","6 ตั้ง","6 นอน","9 ช่อง"];
 let col=null, colInput=null;
 function openCollage(){
   col={layout:4,ratio:1,gap:0.02,radius:0.02,bg:"#ffffff",cells:[],sel:0};
@@ -938,8 +961,8 @@ function openCollage(){
   const cv=$("#colCanvas"),cx=cv.getContext("2d");
   col.cv=cv;col.cx=cx;
   // layout chips
-  const lw=$("#colLayouts"); COL_LAYOUTS.forEach((lo,i)=>{const b=document.createElement("button");b.className="chip"+(col.layout===i?" active":"");b.textContent=lo.length+" ช่อง"+(i>0&&COL_LAYOUTS.findIndex(x=>x.length===lo.length)!==i?" ·":"");
-    b.textContent=["2 ตั้ง","2 นอน","1+2 ตั้ง","1+2 นอน","4 ช่อง","3 ตั้ง"][i];
+  const lw=$("#colLayouts"); COL_LAYOUTS.forEach((lo,i)=>{const b=document.createElement("button");b.className="chip"+(col.layout===i?" active":"");
+    b.textContent=COL_LABELS[i]||(lo.length+" ช่อง");
     b.onclick=()=>{col.layout=i;setLayoutCells();[...lw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};lw.appendChild(b);});
   // ratios
   const rw=$("#colRatios");[["1:1",1],["4:5",4/5],["3:4",3/4],["9:16",9/16]].forEach(([l,r])=>{const b=document.createElement("button");b.className="chip"+(col.ratio===r?" active":"");b.textContent=l;b.onclick=()=>{col.ratio=r;[...rw.children].forEach(x=>x.classList.remove("active"));b.classList.add("active");drawCollage();};rw.appendChild(b);});
@@ -1132,6 +1155,14 @@ function panelAI(){
   const mk=(l,op,pr)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>aiRun(op,pr);return b;};
   g.append(mk("🪄 ลบพื้นหลัง","remove_bg"),mk("✨ HD / เพิ่มความคมชัด","enhance"),mk("🎨 พื้นหลังสตูดิโอ","edit","Replace the background with a clean, soft studio backdrop. Keep the subject unchanged with natural edges."));
   panel.appendChild(g);
+  const g2=document.createElement("div");g2.className="chips";g2.style.marginTop="6px";
+  g2.append(
+    mk("🖌️ การ์ตูน","edit","Turn this photo into a clean, colorful cartoon illustration while keeping the composition and recognizable features."),
+    mk("🌸 อนิเมะ","edit","Redraw this photo in Japanese anime style, keeping the pose, composition and likeness."),
+    mk("📸 พอร์ตเทรต","edit","Make this a professional studio portrait: flattering soft lighting, pleasing color, a clean neutral background and sharp focus. Keep the person's identity unchanged."),
+    mk("💄 แต่งหน้า AI","edit","Apply natural, flattering makeup (soft foundation, subtle blush, light lipstick, defined eyes) while keeping the person's identity and a realistic look.")
+  );
+  panel.appendChild(g2);
   const pr=document.createElement("div");pr.style.cssText="display:flex;gap:8px;margin-top:8px";
   pr.innerHTML=`<input class="aiInput" id="aiPrompt" placeholder="สั่งแก้ด้วยข้อความ เช่น ลบแก้วกาแฟออก / เปลี่ยนพื้นหลังเป็นชายหาด">`;
   const pb=document.createElement("button");pb.className="tbtn primary";pb.textContent="ทำ";pb.onclick=()=>aiRun("edit",$("#aiPrompt").value.trim());
@@ -1187,6 +1218,9 @@ function cmpShow(on){
 btnCmp.addEventListener("pointerdown",e=>{ e.preventDefault(); try{btnCmp.setPointerCapture(e.pointerId);}catch(_){ } cmpShow(true); });
 ["pointerup","pointercancel","pointerleave"].forEach(ev=>btnCmp.addEventListener(ev,()=>cmpShow(false)));
 btnCmp.addEventListener("contextmenu",e=>e.preventDefault());
+
+/* ========== PWA: register service worker (installable app) ========== */
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>{ try{ navigator.serviceWorker.register("sw.js").catch(()=>{}); }catch(_){ } }); }
 
 /* ========== FACE-AI BEAUTY (MediaPipe FaceLandmarker) ========== */
 const MP_VER="0.10.18";
