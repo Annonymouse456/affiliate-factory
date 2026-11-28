@@ -140,6 +140,7 @@ public class OverlayService extends Service {
         mapKeySent = null;               // the map follows: darker veil, and its night colours when dim
         syncMap();
     }
+    private Boolean mapHadKey;
     private int mapDrops;
     private long mapDroppedAt;
     private String mapKeySent;
@@ -151,7 +152,7 @@ public class OverlayService extends Service {
             else if (m.what == MapService.STATUS) {
                 String line = String.valueOf(m.getData().getString("line"));
                 NowPlaying.get().note("แผนที่: " + line);
-                if (line.contains("tomtom tiles")) { note("แผนที่ TomTom ไม่ตอบ (อาจใช้เกินโควตาของวันนี้) ใช้แผนที่ฟรีแทนชั่วคราว จะไม่มีสีจราจร"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 20000); }
+                if (line.contains("tomtom tiles")) { note("แผนที่ TomTom ไม่ตอบ (คีย์ผิด หรือใช้เกินโควตาของวันนี้) ใช้แผนที่ฟรีแทน จะไม่มีสีจราจร และจะกลับไปใช้ TomTom เองเมื่อใช้ได้"); ui.postDelayed(new Runnable() { @Override public void run() { note(null); } }, 20000); }
                 else if (line.contains("เปิดไม่ได้")) note(line);
             }
         }
@@ -677,6 +678,8 @@ public class OverlayService extends Service {
         if (!key.equals(mapKeySent)) {             // traffic key or colours changed
             mapKeySent = key;
             Bundle b = new Bundle();
+            boolean has = !mapKey(this).isEmpty();
+            if (mapHadKey == null || mapHadKey != has) { mapHadKey = has; NowPlaying.get().note(has ? "แผนที่: มีคีย์ TomTom" : "แผนที่: ไม่มีคีย์ TomTom ใช้แผนที่ฟรี ไม่มีจราจร"); }
             b.putString("key", mapKey(this));
             b.putString("colour", String.format(Locale.US, "#%06X", theme()[0] & 0xFFFFFF));
             b.putInt("look", nightLook() ? 2 : 0);                       // 0: by the clock, 2: night colours now
