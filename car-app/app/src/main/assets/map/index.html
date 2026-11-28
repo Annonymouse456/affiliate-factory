@@ -158,7 +158,7 @@
   var mending = null;
   setInterval(function () {            // the free map is standing in for the keyed one: every two minutes, see whether the keyed one answers again
     if (!key || !spare || mending || !view || !view.ready) return;
-    probe(T + '/map/1/tile/basic/main/5/25/14.png?key=' + key, function () { spare = false; fails = 0; stamp = Date.now(); view.tiles(); credit(); host.status('tomtom tiles back'); }, function () { });
+    probe(keyedProbe(), function () { spare = false; fails = 0; stamp = Date.now(); view.tiles(); credit(); host.status('tomtom tiles back'); }, function () { });
   }, 120000);
   function tileFailed() {
     fails++;
@@ -171,8 +171,12 @@
     img.onload = function () { end(true); };
     img.onerror = function () { end(false); };
     setTimeout(function () { end(false); }, 6000);
-    img.src = url + (url.indexOf('?') < 0 ? '?' : '&') + 'try=' + Date.now();
+    img.src = url;
   }
+  // A real map picture from the keyed service, a different one each time so a remembered copy cannot pass for a live answer.
+  // Asked for exactly as the map itself asks: an address with anything extra added may be refused, which would read as "key not working".
+  var probes = 0;
+  function keyedProbe() { probes++; return T + '/map/1/tile/basic/main/9/' + (396 + probes % 6) + '/' + (233 + Math.floor(probes / 6) % 6) + '.png?key=' + key; }
   function mend() {
     var fresh = function (useSpare) {
       clearInterval(mending); mending = null;
@@ -182,9 +186,9 @@
       stamp = Date.now();
       view.tiles(); credit();
     };
-    var free = function () { probe(FREE + '/5/14/25', function () { fresh(true); }, function () { }); };      // nothing answers: still offline, try again shortly
+    var free = function () { probe(FREE + '/9/' + (233 + probes % 6) + '/' + (396 + probes % 6), function () { fresh(true); }, function () { }); };      // nothing answers: still offline, try again shortly
     // with a key, the keyed map comes first; if only the free one answers, the key is being refused (a spent daily allowance looks like this)
-    if (key) probe(T + '/map/1/tile/basic/main/5/25/14.png?key=' + key, function () { fresh(false); }, free); else free();
+    if (key) probe(keyedProbe(), function () { fresh(false); }, free); else free();
   }
   function tileLoaded() { fails = 0; if (troubled) { troubled = false; say('', 0); } }
 
@@ -839,6 +843,7 @@
       });
     }
     var u = used();
+    if (key) add(spare ? 'กำลังใช้แผนที่ฟรี: TomTom ไม่ตอบคำขอภาพแผนที่' : 'กำลังใช้แผนที่ TomTom พร้อมจราจร', spare ? 'แตะเพื่อลอง TomTom อีกครั้งตอนนี้' : '', spare ? function () { spare = false; fails = 0; stamp = Date.now(); view.tiles(); credit(); } : null);
     add(key ? 'TomTom วันนี้: ภาพแผนที่ประมาณ ' + u.tiles + '  ·  ค้นหาและเส้นทาง ' + u.calls + ' ครั้ง' : 'ยังไม่ได้ใส่คีย์ TomTom',
       key ? 'โควตาฟรีต่อวันอยู่ราว 50,000 ภาพ และ 2,500 ครั้ง (ตัวเลขของ TomTom อาจเปลี่ยน ตรวจที่เว็บของเขา)' : 'ไม่มีจราจร และค้นหาชื่อไทยได้น้อยลง', null);
     add('ปิด', '', function () { });
