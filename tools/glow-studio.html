@@ -224,12 +224,34 @@ const PRESETS = {
   monofilm:{n:"ขาวดำฟิล์ม",f:"grayscale(1) contrast(1.28) brightness(1.02)",vig:.14},
   autumn:{n:"ตะวันเย็น",f:"saturate(1.22) contrast(1.04) sepia(.28)",ov:{c:"#ff8a2b",a:.18,m:"soft-light"}},
   nordic:{n:"นอร์ดิก",f:"saturate(.72) contrast(1.05) brightness(1.02)",ov:{c:"#4d7bff",a:.08,m:"soft-light"}},
-  neon:{n:"นีออน",f:"contrast(1.15) saturate(1.3) hue-rotate(-15deg)",ov:{c:"#7c3dff",a:.14,m:"soft-light"}}
+  neon:{n:"นีออน",f:"contrast(1.15) saturate(1.3) hue-rotate(-15deg)",ov:{c:"#7c3dff",a:.14,m:"soft-light"}},
+  flash_clear:{n:"แฟลชผิวใส",f:"brightness(1.12) contrast(1.04) saturate(1.05)",ov:{c:"#ffffff",a:.12,m:"soft-light"}},
+  flash_hd:{n:"แฟลช HD",f:"brightness(1.07) contrast(1.14) saturate(1.1)"},
+  flash_bokeh:{n:"แฟลชโบเก้",f:"brightness(1.1) saturate(1.08) contrast(1.02)",ov:{c:"#ffe3c0",a:.12,m:"soft-light"},fade:.12},
+  flash_ricoh:{n:"แฟลช Ricoh",f:"brightness(1.05) contrast(1.18) saturate(1.05) hue-rotate(4deg)",vig:.1},
+  flash_night:{n:"แฟลชกลางคืน",f:"brightness(1.16) contrast(1.1) saturate(1.02)",ov:{c:"#cfe0ff",a:.1,m:"soft-light"}},
+  flash_pink:{n:"แฟลชพิงก์",f:"brightness(1.1) saturate(1.08)",ov:{c:"#ffd0e0",a:.14,m:"soft-light"}},
+  iphone_natural:{n:"เนเชอรัล",f:"brightness(1.02) contrast(1.05) saturate(1.08)"},
+  iphone_warm:{n:"อุ่นธรรมชาติ",f:"brightness(1.03) saturate(1.1) sepia(.08)",ov:{c:"#ffcf9e",a:.08,m:"soft-light"}},
+  iphone_rich:{n:"สีเข้ม",f:"contrast(1.12) saturate(1.2)"},
+  juicy:{n:"ฉ่ำ",f:"saturate(1.35) brightness(1.03) contrast(1.05)"},
+  ccd:{n:"ดิจิแคม",f:"contrast(1.15) saturate(1.12) hue-rotate(6deg) brightness(1.02)",ov:{c:"#2f7a52",a:.06,m:"soft-light"},vig:.1},
+  ccd_green:{n:"CCD เขียว",f:"hue-rotate(10deg) saturate(1.05) contrast(1.12)",ov:{c:"#2f7a52",a:.1,m:"soft-light"}},
+  ccd_flash:{n:"CCD แฟลช",f:"brightness(1.1) contrast(1.14) saturate(1.08) hue-rotate(5deg)",ov:{c:"#eaf7ff",a:.08,m:"soft-light"}},
+  y2k:{n:"Y2K",f:"saturate(1.22) contrast(1.16) brightness(1.02)",ov:{c:"#ff5cc0",a:.08,m:"soft-light"}},
+  clean:{n:"ใสสะอาด",f:"brightness(1.04) contrast(1.03) saturate(1.06)"},
+  bright2:{n:"สว่าง",f:"brightness(1.12) contrast(1.02) saturate(1.03)"},
+  soft:{n:"นุ่มนวล",f:"contrast(.95) brightness(1.05) saturate(.96)",fade:.1},
+  candy:{n:"แคนดี้",f:"saturate(1.2) brightness(1.06)",ov:{c:"#ffc9e6",a:.12,m:"soft-light"}}
 };
 const FILTER_CATS={
-  bright:["fresh","sweet","vivid","cool","sunset","pastel","airy"],
-  film:["film","kodak","fuji","ocean","cinema","autumn","nordic","neon","moody"],
-  vintage:["warm","vintage","fade","faded","retro","nineties"],
+  basic:["fresh","clean","bright2","soft"],
+  flash:["flash_clear","flash_hd","flash_bokeh","flash_ricoh","flash_night","flash_pink"],
+  iphone:["iphone_natural","iphone_warm","iphone_rich","juicy"],
+  ccd:["ccd","ccd_green","ccd_flash","y2k"],
+  film:["film","kodak","fuji","ocean","cinema","autumn","nordic","neon","moody","retro"],
+  vintage:["warm","vintage","fade","faded","nineties"],
+  bright:["sweet","vivid","cool","sunset","pastel","airy","candy"],
   bw:["mono","noir","monofilm"]
 };
 function presetCat(key){ for(const c in FILTER_CATS){ if(FILTER_CATS[c].includes(key)) return c; } return "other"; }
@@ -511,8 +533,8 @@ function makeThumbSrc(){
 function panelFilter(){
   head("ฟิลเตอร์");
   const cat=S.filterCat||"all";
-  const cc=document.createElement("div");cc.className="chips";cc.style.marginBottom="8px";
-  [["all","ทั้งหมด"],["bright","สดใส"],["film","ฟิล์ม"],["vintage","วินเทจ"],["bw","ขาวดำ"]].forEach(([k,l])=>{const b=document.createElement("button");b.className="chip"+(cat===k?" active":"");b.textContent=l;b.onclick=()=>{S.filterCat=k;refreshPanel();};cc.appendChild(b);});
+  const cc=document.createElement("div");cc.className="strip";cc.style.marginBottom="8px";
+  [["all","ทั้งหมด"],["basic","พื้นฐาน"],["flash","แฟลช"],["iphone","iPhone"],["ccd","กล้อง"],["film","ฟิล์ม"],["vintage","วินเทจ"],["bright","สดใส"],["bw","ขาวดำ"]].forEach(([k,l])=>{const b=document.createElement("button");b.className="chip"+(cat===k?" active":"");b.style.flex="0 0 auto";b.textContent=l;b.onclick=()=>{S.filterCat=k;refreshPanel();};cc.appendChild(b);});
   panel.appendChild(cc);
   const strip=document.createElement("div");strip.className="strip";panel.appendChild(strip);
   makeThumbSrc();
