@@ -353,6 +353,24 @@ function overlayFill(ctx,W,H,color,alpha,mode){
   ctx.save();ctx.globalCompositeOperation=mode||"soft-light";ctx.globalAlpha=alpha;ctx.fillStyle=color;ctx.fillRect(0,0,W,H);ctx.restore();
 }
 function _rgba(hex,a){ const n=parseInt((hex||"#000000").slice(1),16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+function _hexN(hex){ const n=parseInt((hex||"#808080").slice(1),16); return [((n>>16)&255)/255,((n>>8)&255)/255,(n&255)/255]; }
+/* per-pixel color grade: luminance-weighted split-tone (shadow/highlight tint) + white balance — authored like a LUT */
+function gradePixels(ctx,x,y,w,h,p){
+  const im=ctx.getImageData(x,y,w,h),d=im.data;
+  const sa=p.sh?p.sh.a:0, ha=p.hi?p.hi.a:0, temp=p.temp||0;
+  const sv=p.sh?_hexN(p.sh.c):null, hv=p.hi?_hexN(p.hi.c):null;
+  const s0=sv?(sv[0]-0.5)*2:0,s1=sv?(sv[1]-0.5)*2:0,s2=sv?(sv[2]-0.5)*2:0;
+  const h0=hv?(hv[0]-0.5)*2:0,h1=hv?(hv[1]-0.5)*2:0,h2=hv?(hv[2]-0.5)*2:0;
+  for(let i=0;i<d.length;i+=4){
+    let r=d[i]/255,g=d[i+1]/255,b=d[i+2]/255;
+    if(temp){ r+=temp*0.06; b-=temp*0.06; }
+    const lum=0.299*r+0.587*g+0.114*b;
+    if(sv){ const wt=(1-lum)*(1-lum)*sa*2.2; r+=s0*wt; g+=s1*wt; b+=s2*wt; }
+    if(hv){ const wt=lum*lum*ha*2.2; r+=h0*wt; g+=h1*wt; b+=h2*wt; }
+    d[i]=r<0?0:r>1?255:r*255; d[i+1]=g<0?0:g>1?255:g*255; d[i+2]=b<0?0:b>1?255:b*255;
+  }
+  ctx.putImageData(im,x,y);
+}
 /* realistic flash: colored hotspot (screen) + colored falloff (dark edges) + optional bloom (diffusion glow) */
 function flashPass(tx,W,H,fl){
   const cx=W/2,cy=H*0.42,R=Math.max(W,H);
@@ -377,8 +395,7 @@ function paint(ctx,W,H,blurScale){
     const t=document.createElement("canvas");t.width=W;t.height=H;const tx=t.getContext("2d");
     tx.filter=buildFilter(); tx.drawImage(img,0,0,W,H); tx.filter="none";
     if(p.ov) overlayFill(tx,W,H,p.ov.c,p.ov.a,p.ov.m);
-    if(p.sh) overlayFill(tx,W,H,p.sh.c,p.sh.a,"multiply");
-    if(p.hi) overlayFill(tx,W,H,p.hi.c,p.hi.a,"screen");
+    if(p.sh||p.hi||p.temp) gradePixels(tx,0,0,W,H,p);
     if(p.fade){ tx.save();tx.globalCompositeOperation="lighten";tx.globalAlpha=p.fade*0.55;tx.fillStyle="#2a2d38";tx.fillRect(0,0,W,H);tx.restore(); }
     if(p.vig){ const g=tx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34,W/2,H/2,Math.max(W,H)*0.72);g.addColorStop(0,"rgba(0,0,0,0)");g.addColorStop(1,`rgba(0,0,0,${p.vig})`);tx.fillStyle=g;tx.fillRect(0,0,W,H); }
     ctx.save();ctx.globalAlpha=str;ctx.drawImage(t,0,0);ctx.restore();
@@ -576,8 +593,7 @@ function panelFilter(){
     const sw=64,sh=64; const dw=ar>1?sw:sh*ar, dh=ar>1?sw/ar:sh; const ox=(sw-dw)/2,oy=(sh-dh)/2;
     cx.save();cx.filter=(`brightness(1) contrast(1) saturate(1) `+(p.f||"")).trim();cx.drawImage(thumbSrc,ox,oy,dw,dh);cx.restore();
     if(p.ov){cx.save();cx.globalCompositeOperation=p.ov.m||"soft-light";cx.globalAlpha=p.ov.a;cx.fillStyle=p.ov.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
-    if(p.sh){cx.save();cx.globalCompositeOperation="multiply";cx.globalAlpha=p.sh.a;cx.fillStyle=p.sh.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
-    if(p.hi){cx.save();cx.globalCompositeOperation="screen";cx.globalAlpha=p.hi.a;cx.fillStyle=p.hi.c;cx.fillRect(ox,oy,dw,dh);cx.restore();}
+    if(p.sh||p.hi||p.temp) gradePixels(cx,ox,oy,Math.round(dw),Math.round(dh),p);
     t.appendChild(c);const s=document.createElement("span");s.textContent=p.n;t.appendChild(s);
     t.onclick=()=>{S.filter=key;S.filterStrength=1;render();snapshot();refreshPanel();};
     strip.appendChild(t);
