@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -44,7 +44,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 .tbtn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
 
 /* stage */
-#stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;background:
+#stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;touch-action:none;background:
   radial-gradient(120% 90% at 50% 0%,#1a1d27 0%,var(--bg) 70%)}
 #canvasWrap{position:relative;max-width:100%;max-height:100%;line-height:0;box-shadow:0 18px 50px rgba(0,0,0,.5);background:#000;transition:padding .15s,background .15s,border-radius .15s;transform-origin:center center;will-change:transform}
 #base,#doodle{display:block;max-width:100%;max-height:100%;touch-action:none;border-radius:inherit}
@@ -572,8 +572,6 @@ function panelFilter(){
     inp.addEventListener("change",snapshot);
     panel.appendChild(row);
   }
-  const fh=document.createElement("div");fh.style.cssText="font-size:.82rem;font-weight:700;margin:14px 0 2px";fh.textContent="🎞️ เอฟเฟกต์ฟิล์ม";panel.appendChild(fh);
-  panel.append(sliderFX("เกรน (grain)","grain"),sliderFX("แสงรั่ว (light leak)","leak"),sliderFX("ฝุ่น / รอยขีด","dust"));
 }
 function sliderFX(label,key){
   const row=document.createElement("div");row.className="row";
@@ -1503,6 +1501,9 @@ stage.addEventListener("pointerup",e=>{ const wasMulti=ptrs.size>=2; _endPtr(e);
   if(ptrs.size===0 && !wasMulti){ const tgt=e.target; const ok=tgt===base||tgt===dood||tgt===wrap||tgt===stage||(tgt&&tgt.id==="cmpImg"); const t=Date.now();
     if(ok && t-lastTap<300){ view.zoom=view.zoom>1?1:2.4; if(view.zoom<=1){view.tx=0;view.ty=0;} applyView(); lastTap=0; } else lastTap=t; } },true);
 stage.addEventListener("pointercancel",_endPtr,true);
+/* block the browser's own page pinch-zoom so only the photo zooms, never the toolbar */
+["gesturestart","gesturechange","gestureend"].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
+document.addEventListener("dblclick",e=>e.preventDefault(),{passive:false});
 
 /* ---------- init ---------- */
 function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
