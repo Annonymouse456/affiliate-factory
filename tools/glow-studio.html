@@ -75,7 +75,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 .crop-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.25) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.25) 1px,transparent 1px);background-size:33.33% 33.33%}
 
 /* panel */
-#panel{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);max-height:46vh;overflow-y:auto;
+#panel{flex:0 0 auto;background:var(--surface);border-top:1px solid var(--line);max-height:40vh;overflow-y:auto;
   padding:12px max(12px,env(safe-area-inset-left,0px)) 12px max(12px,env(safe-area-inset-right,0px))}
 #panel:empty{display:none}
 .panelHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
@@ -99,6 +99,10 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);color:var(--fg);font-size:.8rem;cursor:pointer}
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.adjchip{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:.76rem;padding:6px 10px;cursor:pointer;white-space:nowrap;font-family:var(--fontUI)}
+.adjchip.active{color:var(--accent);font-weight:600}
+.adjchip .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:transparent;margin-right:4px;vertical-align:middle}
+.adjchip .dot.on{background:var(--accent)}
 .grid-emoji{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:6px}
 .grid-emoji button{font-size:1.5rem;background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:6px 0;cursor:pointer;line-height:1}
 .ta{width:100%;background:var(--surface2);border:1px solid var(--line);border-radius:10px;color:var(--fg);padding:10px;font-size:.95rem;font-family:var(--fontUI);resize:none}
@@ -544,17 +548,32 @@ function sliderFX(label,key){
   inp.addEventListener("change",snapshot);
   return row;
 }
+let adjSel="brightness";
+const ADJ_DEFS=[
+  ["สว่าง","brightness",.3,1.8,.01,1,v=>Math.round((v-1)*100)],
+  ["คอนทราสต์","contrast",.4,1.8,.01,1,v=>Math.round((v-1)*100)],
+  ["อิ่มสี","saturation",0,2,.01,1,v=>Math.round((v-1)*100)],
+  ["อุณหภูมิ","temp",-1,1,.01,0,v=>Math.round(v*100)],
+  ["ความคม","clarity",0,1,.01,0,v=>Math.round(v*100)],
+  ["ฟุ้ง","fade",0,1,.01,0,v=>Math.round(v*100)],
+  ["ขอบมืด","vignette",0,.8,.01,0,v=>Math.round(v/.8*100)]
+];
 function panelAdjust(){
   head("ปรับแสงสี",()=>{S.adjust={brightness:1,contrast:1,saturation:1,temp:0,clarity:0,vignette:0,fade:0,exposure:1};render();snapshot();refreshPanel();});
-  panel.append(
-    slider("ความสว่าง","brightness",S.adjust,.3,1.8,.01,v=>Math.round((v-1)*100)),
-    slider("คอนทราสต์","contrast",S.adjust,.4,1.8,.01,v=>Math.round((v-1)*100)),
-    slider("ความอิ่มสี","saturation",S.adjust,0,2,.01,v=>Math.round((v-1)*100)),
-    slider("อุณหภูมิ","temp",S.adjust,-1,1,.01,v=>Math.round(v*100)),
-    slider("ความคม","clarity",S.adjust,0,1,.01,v=>Math.round(v*100)),
-    slider("ฟุ้ง","fade",S.adjust,0,1,.01,v=>Math.round(v*100)),
-    slider("ขอบมืด","vignette",S.adjust,0,.8,.01,v=>Math.round(v/.8*100))
-  );
+  const def=ADJ_DEFS.find(d=>d[1]===adjSel)||ADJ_DEFS[0], key=def[1];
+  const sr=document.createElement("div");sr.className="row";sr.style.marginTop="2px";
+  sr.innerHTML=`<output style="flex:0 0 44px;text-align:left;color:var(--accent);font-weight:600">${def[6](S.adjust[key])}</output><input type="range" min="${def[2]}" max="${def[3]}" step="${def[4]}" value="${S.adjust[key]}"><button class="chip" id="adjReset" style="flex:0 0 auto;padding:4px 9px">↺</button>`;
+  const inp=sr.querySelector("input"),out=sr.querySelector("output");
+  inp.addEventListener("input",()=>{S.adjust[key]=parseFloat(inp.value);out.textContent=def[6](S.adjust[key]);render();});
+  inp.addEventListener("change",snapshot);
+  panel.appendChild(sr);
+  sr.querySelector("#adjReset").onclick=()=>{S.adjust[key]=def[5];render();snapshot();refreshPanel();};
+  const strip=document.createElement("div");strip.className="strip";strip.style.marginTop="2px";
+  ADJ_DEFS.forEach(d=>{const changed=Math.abs(S.adjust[d[1]]-d[5])>0.001;
+    const b=document.createElement("button");b.className="adjchip"+(adjSel===d[1]?" active":"");
+    b.innerHTML=`<span class="dot${changed?" on":""}"></span>${d[0]}`;
+    b.onclick=()=>{adjSel=d[1];refreshPanel();};strip.appendChild(b);});
+  panel.appendChild(strip);
 }
 function panelBeauty(){
   head("บิวตี้ / รีทัช",()=>{S.beauty={smooth:0,whiten:0,rosy:0};render();snapshot();refreshPanel();});
