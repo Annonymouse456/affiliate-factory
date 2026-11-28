@@ -242,11 +242,23 @@ const PRESETS = {
   clean:{n:"ใสสะอาด",f:"brightness(1.04) contrast(1.03) saturate(1.06)"},
   bright2:{n:"สว่าง",f:"brightness(1.12) contrast(1.02) saturate(1.03)"},
   soft:{n:"นุ่มนวล",f:"contrast(.95) brightness(1.05) saturate(.96)",fade:.1},
-  candy:{n:"แคนดี้",f:"saturate(1.2) brightness(1.06)",ov:{c:"#ffc9e6",a:.12,m:"soft-light"}}
+  candy:{n:"แคนดี้",f:"saturate(1.2) brightness(1.06)",ov:{c:"#ffc9e6",a:.12,m:"soft-light"}},
+  flash_film:{n:"แฟลชฟิล์ม",f:"brightness(1.08) contrast(1.06) sepia(.12)",ov:{c:"#ffdca8",a:.1,m:"soft-light"},fade:.1},
+  flash_cool:{n:"แฟลชเย็น",f:"brightness(1.12) contrast(1.06) hue-rotate(-6deg)",ov:{c:"#bcd6ff",a:.12,m:"soft-light"}},
+  flash_warm:{n:"แฟลชอุ่น",f:"brightness(1.1) saturate(1.08) sepia(.1)",ov:{c:"#ffb877",a:.12,m:"soft-light"}},
+  flash_green:{n:"แฟลชเขียว",f:"brightness(1.1) contrast(1.08) hue-rotate(8deg)",ov:{c:"#9fe0b0",a:.1,m:"soft-light"}},
+  flash_soft:{n:"แฟลชนุ่ม",f:"brightness(1.1) contrast(.98) saturate(.98)",ov:{c:"#ffffff",a:.1,m:"soft-light"},fade:.18},
+  flash_peach:{n:"แฟลชพีช",f:"brightness(1.1) saturate(1.1)",ov:{c:"#ffcbb0",a:.14,m:"soft-light"}},
+  flash_mint:{n:"แฟลชมินต์",f:"brightness(1.1) saturate(1.05) hue-rotate(-4deg)",ov:{c:"#b8f0e6",a:.12,m:"soft-light"}},
+  flash_white:{n:"แฟลชขาวนวล",f:"brightness(1.18) contrast(1.04) saturate(.92)",ov:{c:"#ffffff",a:.14,m:"soft-light"},fade:.12},
+  flash_korea:{n:"แฟลชเกาหลี",f:"brightness(1.13) contrast(1.05) hue-rotate(-3deg)",ov:{c:"#eef3ff",a:.1,m:"soft-light"}},
+  flash_party:{n:"แฟลชปาร์ตี้",f:"brightness(1.08) contrast(1.12) saturate(1.2)",ov:{c:"#ff6fd0",a:.1,m:"soft-light"}},
+  flash_tokyo:{n:"แฟลชโตเกียว",f:"brightness(1.1) contrast(1.16) saturate(1.05) hue-rotate(-8deg)",ov:{c:"#9fb8ff",a:.12,m:"soft-light"},vig:.08},
+  flash_retro:{n:"แฟลชเรโทร",f:"brightness(1.08) contrast(1.04) saturate(1.05) sepia(.18)",ov:{c:"#ffcf9e",a:.12,m:"soft-light"},fade:.14}
 };
 const FILTER_CATS={
   basic:["fresh","clean","bright2","soft"],
-  flash:["flash_clear","flash_hd","flash_bokeh","flash_ricoh","flash_night","flash_pink"],
+  flash:["flash_clear","flash_hd","flash_bokeh","flash_ricoh","flash_night","flash_pink","flash_film","flash_cool","flash_warm","flash_green","flash_soft","flash_peach","flash_mint","flash_white","flash_korea","flash_party","flash_tokyo","flash_retro"],
   iphone:["iphone_natural","iphone_warm","iphone_rich","juicy"],
   ccd:["ccd","ccd_green","ccd_flash","y2k"],
   film:["film","kodak","fuji","ocean","cinema","autumn","nordic","neon","moody","retro"],
