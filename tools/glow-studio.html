@@ -44,7 +44,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 .tbtn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff}
 
 /* stage */
-#stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;touch-action:none;background:
+#stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;touch-action:none;overflow:hidden;background:
   radial-gradient(120% 90% at 50% 0%,#1a1d27 0%,var(--bg) 70%)}
 #canvasWrap{position:relative;max-width:100%;max-height:100%;line-height:0;box-shadow:0 18px 50px rgba(0,0,0,.5);background:#000;transition:padding .15s,background .15s,border-radius .15s;transform-origin:center center;will-change:transform}
 #base,#doodle{display:block;max-width:100%;max-height:100%;touch-action:none;border-radius:inherit}
@@ -1487,20 +1487,21 @@ async function openCamera(){
 /* ========== PINCH ZOOM / PAN (view only — doesn't change the edit) ========== */
 const view={zoom:1,tx:0,ty:0};
 const ptrs=new Map(); let pinch=null, lastTap=0;
-function applyView(){ wrap.style.transform=`translate(${view.tx}px,${view.ty}px) scale(${view.zoom})`; }
+function applyView(){ wrap.style.transform=`translate(${view.tx.toFixed(1)}px,${view.ty.toFixed(1)}px) scale(${view.zoom.toFixed(3)})`; }
+function clampView(){ if(view.zoom<=1.001){view.zoom=1;view.tx=0;view.ty=0;return;} const bw=base.clientWidth||1,bh=base.clientHeight||1,mx=bw*(view.zoom-1)/2,my=bh*(view.zoom-1)/2; view.tx=Math.max(-mx,Math.min(mx,view.tx)); view.ty=Math.max(-my,Math.min(my,view.ty)); }
 function resetView(){ view.zoom=1;view.tx=0;view.ty=0;applyView(); }
 function _dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
-stage.addEventListener("pointerdown",e=>{ ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(ptrs.size>=2 && S.tab!=="crop"){ const p=[...ptrs.values()]; pinch={d:_dist(p[0],p[1])||1,mx:(p[0].x+p[1].x)/2,my:(p[0].y+p[1].y)/2,z:view.zoom,tx:view.tx,ty:view.ty}; drawing=false; rdown=false; } },true);
+function _baseline(){ if(ptrs.size<2){pinch=null;return;} const p=[...ptrs.values()]; pinch={d:Math.max(24,_dist(p[0],p[1])),mx:(p[0].x+p[1].x)/2,my:(p[0].y+p[1].y)/2,z:view.zoom,tx:view.tx,ty:view.ty}; }
+stage.addEventListener("pointerdown",e=>{ ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(ptrs.size>=2 && S.tab!=="crop"){ drawing=false;rdown=false; _baseline(); } },true);
 stage.addEventListener("pointermove",e=>{ if(!ptrs.has(e.pointerId))return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pinch && ptrs.size>=2){ const p=[...ptrs.values()]; const d=_dist(p[0],p[1]),mx=(p[0].x+p[1].x)/2,my=(p[0].y+p[1].y)/2;
-    view.zoom=Math.min(6,Math.max(1,pinch.z*d/pinch.d)); view.tx=pinch.tx+(mx-pinch.mx); view.ty=pinch.ty+(my-pinch.my);
-    if(view.zoom<=1.004){view.zoom=1;view.tx=0;view.ty=0;} applyView(); e.preventDefault(); } },true);
-function _endPtr(e){ ptrs.delete(e.pointerId); if(ptrs.size<2)pinch=null; }
-stage.addEventListener("pointerup",e=>{ const wasMulti=ptrs.size>=2; _endPtr(e);
-  if(ptrs.size===0 && !wasMulti){ const tgt=e.target; const ok=tgt===base||tgt===dood||tgt===wrap||tgt===stage||(tgt&&tgt.id==="cmpImg"); const t=Date.now();
-    if(ok && t-lastTap<300){ view.zoom=view.zoom>1?1:2.4; if(view.zoom<=1){view.tx=0;view.ty=0;} applyView(); lastTap=0; } else lastTap=t; } },true);
-stage.addEventListener("pointercancel",_endPtr,true);
+  if(pinch && ptrs.size>=2 && S.tab!=="crop"){ const p=[...ptrs.values()]; const d=Math.max(24,_dist(p[0],p[1])),mx=(p[0].x+p[1].x)/2,my=(p[0].y+p[1].y)/2;
+    view.zoom=Math.min(4,Math.max(1,pinch.z*d/pinch.d)); view.tx=pinch.tx+(mx-pinch.mx); view.ty=pinch.ty+(my-pinch.my); clampView(); applyView(); e.preventDefault(); } },true);
+function _end(e){ if(ptrs.delete(e.pointerId)){ if(ptrs.size>=2)_baseline(); else pinch=null; } }
+stage.addEventListener("pointerup",e=>{ const wasMulti=ptrs.size>=2; _end(e);
+  if(ptrs.size===0 && !wasMulti){ const tgt=e.target, ok=tgt===base||tgt===dood||tgt===wrap||tgt===stage||(tgt&&tgt.id==="cmpImg"), t=Date.now();
+    if(ok && t-lastTap<300){ view.zoom=view.zoom>1.05?1:2.2; clampView(); applyView(); lastTap=0; } else lastTap=t; } },true);
+stage.addEventListener("pointercancel",_end,true);
+window.addEventListener("pointerup",_end,true); window.addEventListener("pointercancel",_end,true);
 /* block the browser's own page pinch-zoom so only the photo zooms, never the toolbar */
 ["gesturestart","gesturechange","gestureend"].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
 document.addEventListener("dblclick",e=>e.preventDefault(),{passive:false});
