@@ -8,7 +8,7 @@
 <script src="leaflet.js"></script>
 <!--
   The map panel of the car display: a flat map drawn with picture tiles, kept light so a small head
-  unit can keep up. TomTom tiles, traffic, search and routing when a key is present; CARTO tiles, OSRM
+  unit can keep up. TomTom tiles, traffic, search and routing when a key is present; Esri street tiles, OSRM
   and Photon otherwise. Written for old browsers on purpose.
   The app feeds it the car's position; nothing here asks the browser for location.
 -->
@@ -130,13 +130,15 @@
     return day ? { ground: '#e9ecef', way: '#1766ff', edge: '#ffffff', gone: '#8c96a6' }
                : { ground: '#0b0f17', way: '#5fb0ff', edge: '#ffffff', gone: '#6b7686' };
   }
+  // The map used without a key, or when the keyed one is refused. (CARTO's free tiles, used here before, now come stamped "API key required".)
+  var FREE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile';
   function baseUrl() {
     return paid() ? T + '/map/1/tile/basic/' + (day ? 'main' : 'night') + '/{z}/{x}/{y}.png?key=' + key + '&language=th-TH'
-               : 'https://{s}.basemaps.cartocdn.com/' + (day ? 'rastertiles/voyager' : 'dark_all') + '/{z}/{x}/{y}.png';
+               : FREE + '/{z}/{y}/{x}';          // the same street map by day and night; at night it is shown dimmed over a dark ground
   }
   function flowUrl() { return T + '/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=' + key + '&t=' + stamp; }
   function skin() { document.body.className = (day ? 'day' : 'night') + (route ? ' nav' : ''); }
-  function credit() { skin(); $('credit').textContent = paid() ? '© TomTom' : '© OpenStreetMap © CARTO'; }
+  function credit() { skin(); $('credit').textContent = paid() ? '© TomTom' : 'Tiles © Esri'; }
   function arrowSvg() {
     return '<svg viewBox="0 0 44 44" width="56" height="56"><circle cx="22" cy="22" r="21" fill="#0b1220" opacity=".55"/>' +
       '<path d="M22 5l12 30-12-7-12 7z" fill="' + accent + '" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
@@ -154,6 +156,10 @@
   // internet was connected would stay empty. After any failure, keep testing the line every few
   // seconds; the moment a picture comes through, load the whole map afresh.
   var mending = null;
+  setInterval(function () {            // the free map is standing in for the keyed one: every two minutes, see whether the keyed one answers again
+    if (!key || !spare || mending || !view || !view.ready) return;
+    probe(T + '/map/1/tile/basic/main/5/25/14.png?key=' + key, function () { spare = false; fails = 0; stamp = Date.now(); view.tiles(); credit(); host.status('tomtom tiles back'); }, function () { });
+  }, 120000);
   function tileFailed() {
     fails++;
     if (fails >= 6 && !troubled) { troubled = true; say('ยังโหลดแผนที่ไม่ได้ กำลังลองใหม่เรื่อย ๆ', 0); }
@@ -176,7 +182,7 @@
       stamp = Date.now();
       view.tiles(); credit();
     };
-    var free = function () { probe('https://a.basemaps.cartocdn.com/rastertiles/voyager/5/25/14.png', function () { fresh(true); }, function () { }); };      // nothing answers: still offline, try again shortly
+    var free = function () { probe(FREE + '/5/14/25', function () { fresh(true); }, function () { }); };      // nothing answers: still offline, try again shortly
     // with a key, the keyed map comes first; if only the free one answers, the key is being refused (a spent daily allowance looks like this)
     if (key) probe(T + '/map/1/tile/basic/main/5/25/14.png?key=' + key, function () { fresh(false); }, free); else free();
   }
@@ -219,6 +225,7 @@
       zoom: function () { return map.getZoom(); },
       setZoom: function (z) { map.setZoom(z); },
       tiles: function () {
+        base.setOpacity(paid() || day ? 1 : 0.55);
         base.setUrl(baseUrl());
         if (!map.hasLayer(base)) base.addTo(map);
         document.body.style.background = $('map').style.background = look3().ground;
