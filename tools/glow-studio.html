@@ -46,7 +46,7 @@ body{background:var(--bg);color:var(--fg);font-family:var(--fontUI);overflow:hid
 /* stage */
 #stage{flex:1 1 auto;min-height:0;display:grid;place-items:center;padding:14px;position:relative;background:
   radial-gradient(120% 90% at 50% 0%,#1a1d27 0%,var(--bg) 70%)}
-#canvasWrap{position:relative;max-width:100%;max-height:100%;line-height:0;box-shadow:0 18px 50px rgba(0,0,0,.5);background:#000;transition:padding .15s,background .15s,border-radius .15s}
+#canvasWrap{position:relative;max-width:100%;max-height:100%;line-height:0;box-shadow:0 18px 50px rgba(0,0,0,.5);background:#000;transition:padding .15s,background .15s,border-radius .15s;transform-origin:center center;will-change:transform}
 #base,#doodle{display:block;max-width:100%;max-height:100%;touch-action:none;border-radius:inherit}
 #doodle{position:absolute;inset:0;width:100%;height:100%}
 #overlay{position:absolute;inset:0}
@@ -439,9 +439,10 @@ function repositionAll(){ S.overlays.forEach(positionOv); }
 function selectOv(o){ if(selEl)selEl.classList.remove("sel"); selEl=o.el; o.el.classList.add("sel"); }
 function clearSel(){ if(selEl){selEl.classList.remove("sel");selEl=null;} }
 function dragOv(e,o){
+  if(ptrs.size>=2)return;
   o.el.setPointerCapture(e.pointerId); const bw=base.clientWidth,bh=base.clientHeight;
   const sx=e.clientX,sy=e.clientY,ox=o.x,oy=o.y;
-  const mv=ev=>{ o.x=Math.min(1,Math.max(0,ox+(ev.clientX-sx)/bw)); o.y=Math.min(1,Math.max(0,oy+(ev.clientY-sy)/bh)); positionOv(o); };
+  const mv=ev=>{ o.x=Math.min(1,Math.max(0,ox+(ev.clientX-sx)/bw/view.zoom)); o.y=Math.min(1,Math.max(0,oy+(ev.clientY-sy)/bh/view.zoom)); positionOv(o); };
   const up=()=>{o.el.removeEventListener("pointermove",mv);o.el.removeEventListener("pointerup",up);snapshot();};
   o.el.addEventListener("pointermove",mv); o.el.addEventListener("pointerup",up);
 }
@@ -459,7 +460,7 @@ overlay.addEventListener("pointerdown",e=>{ if(e.target===overlay) clearSel(); }
 /* ---------- doodle ---------- */
 let drawing=false,last=null;
 function doodleXY(e){ const r=dood.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*dood.width,y:(e.clientY-r.top)/r.height*dood.height}; }
-function dStart(e){ if(S.tab==="retouch"){retouchDown(e);return;} if(S.tab!=="doodle")return; drawing=true; dood.setPointerCapture(e.pointerId); last=doodleXY(e); dDraw(e); }
+function dStart(e){ if(ptrs.size>=2)return; if(S.tab==="retouch"){retouchDown(e);return;} if(S.tab!=="doodle")return; drawing=true; dood.setPointerCapture(e.pointerId); last=doodleXY(e); dDraw(e); }
 function dDraw(e){ if(S.tab==="retouch"){retouchMove(e);return;} if(!drawing)return; const p=doodleXY(e);
   dctx.save(); dctx.lineCap="round";dctx.lineJoin="round";
   dctx.globalCompositeOperation=S.doodle.erase?"destination-out":"source-over";
@@ -780,7 +781,7 @@ async function rebake(canvas){
   await loadImg(S.baseSrc);
   fitStage();
   dctx.clearRect(0,0,dood.width,dood.height); // reset doodle after geometry change
-  applyFrameCSS(); render(); repositionAll(); snapshot();
+  applyFrameCSS(); render(); repositionAll(); resetView(); snapshot();
 }
 
 /* ---------- import ---------- */
@@ -794,7 +795,7 @@ async function setNewImage(src,user){
   S.beauty={smooth:0,whiten:0,rosy:0}; S.filter="org"; S.filterStrength=1; S.fx={grain:0,leak:0,dust:0}; S.frame="none";
   overlay.innerHTML="";S.overlays=[];selEl=null;
   fitStage(); dctx.clearRect(0,0,dood.width,dood.height);
-  applyFrameCSS(); render();
+  applyFrameCSS(); render(); resetView();
   emptyHint.style.display=user?"none":"block";
   hist=[];hpos=-1;snapshot(); refreshPanel();
 }
@@ -905,7 +906,7 @@ function buildRLayers(){
   mc.imageSmoothingEnabled=false;mc.drawImage(tmp,0,0,sw,sh,0,0,S.natW,S.natH);
 }
 function rXY(e){const r=dood.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*S.natW,y:(e.clientY-r.top)/r.height*S.natH};}
-function retouchDown(e){ if(!retouchMode)return; rdown=true; dood.setPointerCapture(e.pointerId); rlast=rXY(e); applyTouch(rlast,rlast); render(); }
+function retouchDown(e){ if(ptrs.size>=2||!retouchMode)return; rdown=true; dood.setPointerCapture(e.pointerId); rlast=rXY(e); applyTouch(rlast,rlast); render(); }
 function retouchMove(e){ if(!retouchMode||!rdown)return; const p=rXY(e); applyTouch(rlast,p); rlast=p; render(); }
 function retouchUp(){ if(rdown){rdown=false;} }
 function applyTouch(a,b){
@@ -1484,6 +1485,24 @@ async function openCamera(){
     const url=c.toDataURL("image/jpeg",0.95); close(); await setNewImage(url,true); aiToast("ถ่ายแล้ว ✓ แต่งต่อได้เลย");
   };
 }
+
+/* ========== PINCH ZOOM / PAN (view only — doesn't change the edit) ========== */
+const view={zoom:1,tx:0,ty:0};
+const ptrs=new Map(); let pinch=null, lastTap=0;
+function applyView(){ wrap.style.transform=`translate(${view.tx}px,${view.ty}px) scale(${view.zoom})`; }
+function resetView(){ view.zoom=1;view.tx=0;view.ty=0;applyView(); }
+function _dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+stage.addEventListener("pointerdown",e=>{ ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size>=2 && S.tab!=="crop"){ const p=[...ptrs.values()]; pinch={d:_dist(p[0],p[1])||1,mx:(p[0].x+p[1].x)/2,my:(p[0].y+p[1].y)/2,z:view.zoom,tx:view.tx,ty:view.ty}; drawing=false; rdown=false; } },true);
+stage.addEventListener("pointermove",e=>{ if(!ptrs.has(e.pointerId))return; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch && ptrs.size>=2){ const p=[...ptrs.values()]; const d=_dist(p[0],p[1]),mx=(p[0].x+p[1].x)/2,my=(p[0].y+p[1].y)/2;
+    view.zoom=Math.min(6,Math.max(1,pinch.z*d/pinch.d)); view.tx=pinch.tx+(mx-pinch.mx); view.ty=pinch.ty+(my-pinch.my);
+    if(view.zoom<=1.004){view.zoom=1;view.tx=0;view.ty=0;} applyView(); e.preventDefault(); } },true);
+function _endPtr(e){ ptrs.delete(e.pointerId); if(ptrs.size<2)pinch=null; }
+stage.addEventListener("pointerup",e=>{ const wasMulti=ptrs.size>=2; _endPtr(e);
+  if(ptrs.size===0 && !wasMulti){ const tgt=e.target; const ok=tgt===base||tgt===dood||tgt===wrap||tgt===stage||(tgt&&tgt.id==="cmpImg"); const t=Date.now();
+    if(ok && t-lastTap<300){ view.zoom=view.zoom>1?1:2.4; if(view.zoom<=1){view.tx=0;view.ty=0;} applyView(); lastTap=0; } else lastTap=t; } },true);
+stage.addEventListener("pointercancel",_endPtr,true);
 
 /* ---------- init ---------- */
 function onResize(){ if(!S.baseSrc)return; fitStage(); applyFrameCSS(); render(); repositionAll(); drawCrop(); }
