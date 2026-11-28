@@ -144,6 +144,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <button class="iconbtn" id="btnRedo" title="ทำซ้ำ" disabled>&#8631;</button>
     <div class="brand">Glow <span>Studio</span></div>
     <button class="iconbtn" id="btnAuto" title="ปรับออโต้ (Auto)">✨</button>
+    <button class="iconbtn" id="btnCam" title="กล้องบิวตี้">📷</button>
     <button class="tbtn" id="btnImport">รูป</button>
     <button class="tbtn primary" id="btnSave">บันทึก</button>
   </header>
@@ -565,6 +566,18 @@ function panelBeauty(){
   const sl=document.createElement("span");sl.style.cssText="font-size:.76rem;color:var(--muted);align-self:center;margin-right:2px";sl.textContent="ดัดหน้าเรียว:";slim.appendChild(sl);
   [["เบา",0.5],["กลาง",1],["เข้ม",1.6]].forEach(([l,s])=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=()=>faceSlimAuto(s);slim.appendChild(b);});
   panel.appendChild(slim);
+  const fh2=document.createElement("div");fh2.style.cssText="font-size:.78rem;color:var(--muted);margin:10px 0 2px";fh2.textContent="แต่งหน้า / รีทัชหน้า:";panel.appendChild(fh2);
+  const feat=document.createElement("div");feat.className="chips";
+  const fb=(l,fn)=>{const b=document.createElement("button");b.className="chip";b.textContent=l;b.onclick=fn;return b;};
+  feat.append(
+    fb("😁 ฟันขาว",()=>faceOp("กำลังทำฟันขาว…",(f,w,W,H)=>fxTeeth(f,w,W,H))),
+    fb("👁 ตาโต",()=>faceOp("กำลังทำตาโต…",(f,w,W,H)=>fxEyes(f,w,W,H,0.18))),
+    fb("👃 จมูกเล็ก",()=>faceOp("กำลังปรับจมูก…",(f,w,W,H)=>fxNose(f,w,W,H,1))),
+    fb("💋 ลิปสี",()=>faceOp("กำลังทาลิป…",(f,w,W,H)=>fxLip(f,w,W,H,"#d94f6e"))),
+    fb("🌸 บลัช",()=>faceOp("กำลังทาบลัช…",(f,w,W,H)=>fxBlush(f,w,W,H))),
+    fb("🧴 ลบสิว",()=>faceOp("กำลังลบสิว…",(f,w,W,H)=>fxAcne(f,w,W,H)))
+  );
+  panel.appendChild(feat);
   const an=document.createElement("p");an.className="note";an.innerHTML="เนียนเฉพาะผิว เก็บตา/ปากคม · ทำงานกับรูปที่มีใบหน้า · ครั้งแรกโหลดโมเดลสักครู่ · ต้องเปิดบนเว็บจริง (ลิงก์ Pages)";panel.appendChild(an);
   const hr=document.createElement("div");hr.style.cssText="height:1px;background:var(--line);margin:12px 0";panel.appendChild(hr);
   const mh=document.createElement("div");mh.style.cssText="font-size:.82rem;font-weight:700;margin-bottom:2px";mh.textContent="ปรับเองทั้งภาพ";panel.appendChild(mh);
@@ -1307,6 +1320,116 @@ async function faceSlimAuto(amount){
     aiToast("ดัดหน้าเสร็จ ✓");
   }catch(e){ aiToast(e.message||String(e)); }
   finally{ aiBusy=false; aiOverlay(false); }
+}
+
+/* ---- face retouch extras (teeth / eyes / nose / lip / blush / acne) ---- */
+const INNER_LIPS=[78,95,88,178,87,14,317,402,318,324,308,415,310,311,312,13,82,81,80,191];
+const NOSE_SIDES=[48,64,278,294,98,327];
+function _pt(f,i,W,H){ return {x:f[i].x*W,y:f[i].y*H}; }
+function _center(f,idx,W,H){ let sx=0,sy=0; idx.forEach(i=>{sx+=f[i].x;sy+=f[i].y;}); return {x:sx/idx.length*W,y:sy/idx.length*H}; }
+function _span(f,a,b,W){ return Math.abs((f[a].x-f[b].x)*W); }
+function _mask(f,polys,W,H,feather){
+  const m=document.createElement("canvas");m.width=W;m.height=H;const x=m.getContext("2d");x.fillStyle="#fff";
+  polys.forEach(idx=>{x.beginPath();idx.forEach((i,k)=>{const px=f[i].x*W,py=f[i].y*H;k?x.lineTo(px,py):x.moveTo(px,py);});x.closePath();x.fill();});
+  if(feather>0){const m2=document.createElement("canvas");m2.width=W;m2.height=H;const x2=m2.getContext("2d");x2.filter=`blur(${feather}px)`;x2.drawImage(m,0,0);return m2;}
+  return m;
+}
+async function faceOp(msg,fn){
+  if(!S.baseSrc||aiBusy)return; aiBusy=true; aiOverlay(true,"กำลังตรวจใบหน้า…");
+  try{
+    let faces; try{ faces=await detectFaces(); }catch(e){ throw new Error("โหลดโมเดลไม่ได้ — ต้องเปิดบนเว็บจริง (ลิงก์ Pages)"); }
+    if(!faces.length) throw new Error("ไม่พบใบหน้าในรูปนี้");
+    aiOverlay(true,msg); await new Promise(r=>setTimeout(r,20));
+    const W=S.natW,H=S.natH; const work=document.createElement("canvas");work.width=W;work.height=H;work.getContext("2d").drawImage(img,0,0);
+    faces.forEach(f=>fn(f,work,W,H)); await bakeCanvas(work); aiToast("เสร็จ ✓");
+  }catch(e){ aiToast(e.message||String(e)); } finally{ aiBusy=false; aiOverlay(false); }
+}
+function warpBulge(cv,cx,cy,r,strength){
+  const ctx=cv.getContext("2d");
+  const x0=Math.max(0,Math.floor(cx-r)),y0=Math.max(0,Math.floor(cy-r)),x1=Math.min(cv.width,Math.ceil(cx+r)),y1=Math.min(cv.height,Math.ceil(cy+r));
+  const w=x1-x0,h=y1-y0; if(w<=0||h<=0)return;
+  const src=ctx.getImageData(x0,y0,w,h),sd=src.data,out=ctx.createImageData(w,h),od=out.data;od.set(sd);
+  for(let yy=0;yy<h;yy++)for(let xx=0;xx<w;xx++){
+    const px=x0+xx,py=y0+yy,dd=Math.hypot(px-cx,py-cy); if(dd>r)continue;
+    const k=(1-dd/r)*(1-dd/r)*strength; let sx=cx+(px-cx)*(1-k)-x0,sy=cy+(py-cy)*(1-k)-y0;
+    sx=Math.max(0,Math.min(w-1,sx));sy=Math.max(0,Math.min(h-1,sy));
+    const xi=Math.floor(sx),yi=Math.floor(sy),fx=sx-xi,fy=sy-yi,xi2=Math.min(w-1,xi+1),yi2=Math.min(h-1,yi+1);
+    const i00=(yi*w+xi)*4,i10=(yi*w+xi2)*4,i01=(yi2*w+xi)*4,i11=(yi2*w+xi2)*4,o=(yy*w+xx)*4;
+    for(let c=0;c<4;c++){const top=sd[i00+c]*(1-fx)+sd[i10+c]*fx,bot=sd[i01+c]*(1-fx)+sd[i11+c]*fx;od[o+c]=top*(1-fy)+bot*fy;}
+  }
+  ctx.putImageData(out,x0,y0);
+}
+function fxTeeth(f,work,W,H){
+  const mask=_mask(f,[INNER_LIPS],W,H,Math.min(W,H)*0.004);
+  const t=document.createElement("canvas");t.width=W;t.height=H;const tc=t.getContext("2d");
+  tc.filter="brightness(1.22) saturate(0.55)";tc.drawImage(work,0,0);tc.filter="none";
+  tc.globalCompositeOperation="destination-in";tc.drawImage(mask,0,0);
+  work.getContext("2d").drawImage(t,0,0);
+}
+function fxEyes(f,work,W,H,amt){
+  const lc=_center(f,L_EYE,W,H),rc=_center(f,R_EYE,W,H);
+  warpBulge(work,lc.x,lc.y,Math.max(8,_span(f,133,33,W)*1.6),amt);
+  warpBulge(work,rc.x,rc.y,Math.max(8,_span(f,263,362,W)*1.6),amt);
+}
+function fxNose(f,work,W,H,amt){
+  const cx=f[1].x*W, faceW=_span(f,454,234,W);
+  NOSE_SIDES.forEach(i=>{const px=f[i].x*W,py=f[i].y*H,dir=px<cx?1:-1,dx=dir*faceW*0.03*amt;warpPush(work,px,py,faceW*0.08,dx,0,0.8);});
+}
+function fxLip(f,work,W,H,color){
+  const mn=Math.min(W,H);
+  const mask=_mask(f,[LIPS],W,H,mn*0.003);
+  const mctx=mask.getContext("2d");mctx.globalCompositeOperation="destination-out";mctx.drawImage(_mask(f,[INNER_LIPS],W,H,0),0,0);mctx.globalCompositeOperation="source-over";
+  const t=document.createElement("canvas");t.width=W;t.height=H;const tc=t.getContext("2d");
+  tc.fillStyle=color;tc.fillRect(0,0,W,H);tc.globalCompositeOperation="destination-in";tc.drawImage(mask,0,0);
+  const wc=work.getContext("2d");wc.save();wc.globalCompositeOperation="soft-light";wc.globalAlpha=0.6;wc.drawImage(t,0,0);wc.restore();
+}
+function fxBlush(f,work,W,H){
+  const wc=work.getContext("2d"),faceW=_span(f,454,234,W);
+  [_pt(f,50,W,H),_pt(f,280,W,H)].forEach(c=>{const g=wc.createRadialGradient(c.x,c.y,0,c.x,c.y,faceW*0.2);g.addColorStop(0,"rgba(255,120,150,0.5)");g.addColorStop(1,"rgba(255,120,150,0)");wc.save();wc.globalCompositeOperation="soft-light";wc.fillStyle=g;wc.fillRect(0,0,W,H);wc.restore();});
+}
+function fxAcne(f,work,W,H){
+  const mn=Math.min(W,H);
+  const mask=_mask(f,[FACE_OVAL],W,H,mn*0.012);
+  const mctx=mask.getContext("2d");mctx.globalCompositeOperation="destination-out";[L_EYE,R_EYE,LIPS,L_BROW,R_BROW].forEach(idx=>mctx.drawImage(_mask(f,[idx],W,H,0),0,0));mctx.globalCompositeOperation="source-over";
+  const blur=document.createElement("canvas");blur.width=W;blur.height=H;const bc=blur.getContext("2d");
+  bc.filter=`blur(${Math.max(2,mn*0.01)}px)`;bc.drawImage(work,0,0);bc.filter="none";bc.globalCompositeOperation="destination-in";bc.drawImage(mask,0,0);
+  const wc=work.getContext("2d");wc.save();wc.globalAlpha=0.9;wc.drawImage(blur,0,0);wc.restore();
+}
+
+/* ========== LIVE BEAUTY CAMERA ========== */
+let camStream=null, camFacing="user", camBeauty=0.5;
+$("#btnCam").onclick=openCamera;
+function camFilterStr(scale){ return `blur(${(camBeauty*1.6*(scale||1)).toFixed(2)}px) brightness(${(1+camBeauty*0.12).toFixed(3)}) saturate(${(1+camBeauty*0.12).toFixed(3)}) contrast(1.02)`; }
+async function openCamera(){
+  const m=$("#camModal")||(()=>{const d=document.createElement("div");d.id="camModal";d.className="modal";document.body.appendChild(d);return d;})();
+  m.innerHTML=`<div class="card" style="max-width:520px;padding:12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><h3 style="margin:0">กล้องบิวตี้สด</h3><button class="tbtn" id="camClose" style="margin-left:auto">ปิด</button></div>
+    <div style="position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:3/4"><video id="camVideo" playsinline autoplay muted style="width:100%;height:100%;object-fit:cover;display:block"></video></div>
+    <div class="row"><label>บิวตี้สด</label><input type="range" id="camBeautyR" min="0" max="1" step="0.01" value="${camBeauty}"><output>${Math.round(camBeauty*100)}</output></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="tbtn" id="camFlip" style="flex:1">🔄 สลับกล้อง</button>
+      <button class="tbtn primary" id="camShot" style="flex:2">📸 ถ่าย</button>
+    </div>
+    <p class="note" id="camNote">อนุญาตกล้อง แล้วเล็งหน้า · ปรับบิวตี้สด · กดถ่ายเพื่อไปแต่งต่อ</p>
+  </div>`;
+  m.hidden=false;
+  const v=$("#camVideo");
+  const applyF=()=>{ v.style.filter=camFilterStr(1); v.style.transform=camFacing==="user"?"scaleX(-1)":"none"; };
+  applyF();
+  async function start(){ try{ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error("อุปกรณ์ไม่รองรับกล้องในเบราว์เซอร์"); if(camStream)camStream.getTracks().forEach(t=>t.stop()); camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:camFacing},audio:false}); v.srcObject=camStream; }catch(e){ $("#camNote").textContent="เปิดกล้องไม่ได้: "+(e.message||e)+" — ต้องเปิดบนเว็บจริง (https) และกดอนุญาตกล้อง"; } }
+  await start();
+  $("#camBeautyR").oninput=e=>{camBeauty=+e.target.value;e.target.nextElementSibling.textContent=Math.round(camBeauty*100);applyF();};
+  $("#camFlip").onclick=()=>{camFacing=camFacing==="user"?"environment":"user";applyF();start();};
+  const close=()=>{ if(camStream){camStream.getTracks().forEach(t=>t.stop());camStream=null;} m.hidden=true; };
+  $("#camClose").onclick=close; m.onclick=e=>{ if(e.target===m)close(); };
+  $("#camShot").onclick=async()=>{
+    if(!camStream)return; const vw=v.videoWidth,vh=v.videoHeight; if(!vw){aiToast("กล้องยังไม่พร้อม");return;}
+    const c=document.createElement("canvas");c.width=vw;c.height=vh;const cx=c.getContext("2d");
+    cx.filter=camFilterStr(vw/(v.clientWidth||vw));
+    if(camFacing==="user"){cx.translate(vw,0);cx.scale(-1,1);}
+    cx.drawImage(v,0,0,vw,vh);
+    const url=c.toDataURL("image/jpeg",0.95); close(); await setNewImage(url,true); aiToast("ถ่ายแล้ว ✓ แต่งต่อได้เลย");
+  };
 }
 
 /* ---------- init ---------- */
